@@ -1120,13 +1120,6 @@ body.cutscene .touch-root {
   }
 }
 @media (max-width: 560px) {
-  /* Above the touch controls + hotbar (tools.css) even on short screens. */
-  .touch-ui .hud-bottom {
-    bottom: calc(var(--safe-b) + max(34%, 228px));
-  }
-  .touch-ui .prompt {
-    bottom: calc(var(--safe-b) + 32%);
-  }
   .prompt {
     white-space: normal;
     width: 90vw;
@@ -1361,19 +1354,65 @@ body.cutscene .touch-root {
   pointer-events: none;
 }
 @media (max-width: 560px) {
-  .touch-ui .hud-act {
-    bottom: calc(var(--safe-b) + max(33%, 228px));
-  }
-  /* "You're next!" goes over the raised Skip Line, not down on the joystick. */
-  body.touch-ui .hud.in-line .status {
-    bottom: calc(var(--safe-b) + max(34%, 228px) + 76px);
-  }
-  .touch-ui .has-act .prompt,
-  .touch-ui .has-act .status {
-    bottom: calc(var(--safe-b) + max(33%, 228px) + clamp(84px, 14vmin, 120px));
-  }
   .act-l {
     font-size: 0.8rem;
+  }
+}
+/* Portrait phones with touch controls: the player stands in the middle of the screen, so Skip Line /
+   Skip Time / Fly Again stay low and compact - one row (price beside the text), just above the
+   joystick (or above the hotbar when it shows). --act-y is that spot; prompts and "You're next!"
+   stack on top of it. The "Plane arriving in" label is dropped while the clock at the top shows it. */
+@media (max-width: 700px) and (min-height: 561px) {
+  body.touch-ui .hud {
+    --act-y: calc(var(--safe-b) + clamp(12px, 3vmin, 24px) + clamp(104px, 28vmin, 150px) + 16px);
+  }
+  body.touch-ui .hud.has-tools {
+    /* the hotbar's drawn height: a slot (tools.css) + its 6px padding top and bottom */
+    --act-y: calc(var(--safe-b) + 156px + clamp(48px, 7vmin, 66px) + 12px + 8px);
+  }
+  .touch-ui .hud-bottom,
+  .touch-ui .hud-act {
+    bottom: var(--act-y);
+  }
+  .touch-ui .skipline,
+  .touch-ui .act-b {
+    flex-direction: row;
+    gap: 0.4em;
+    min-height: 44px;
+    padding: 0.12em 0.8em 0.16em;
+    font-size: clamp(1.1rem, 5.4vw, 1.35rem); /* clear of the CAM button on 320px screens */
+    white-space: nowrap;
+  }
+  .touch-ui .skipline .price,
+  .touch-ui .act-p .price {
+    font-size: 0.62em;
+  }
+  .touch-ui .pos,
+  .touch-ui .act-l {
+    font-size: 0.8rem;
+  }
+  .touch-ui .has-timer .act-l {
+    display: none;
+  }
+  .touch-ui .prompt {
+    bottom: var(--act-y);
+  }
+  body.touch-ui .hud.in-line .status,
+  .touch-ui .has-act .prompt,
+  .touch-ui .has-act .status {
+    bottom: calc(var(--act-y) + 70px);
+  }
+  /* A smaller countdown under Board The Plane ... */
+  .touch-ui .plane-timer .pt-t {
+    font-size: 1.7rem;
+  }
+}
+/* ... on one line ("PLANE ARRIVING IN 3:04") where the coins beside the Shop tile leave room. */
+@media (min-width: 361px) and (max-width: 700px) and (min-height: 561px) {
+  .touch-ui .plane-timer.show {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.35em;
   }
 }
 @media (max-height: 560px) {
