@@ -1,0 +1,53 @@
+/* Troll effects drawn over the game (trolls.js). */
+.troll-scare {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.55), rgba(120, 0, 0, 0.92));
+}
+.troll-scare .skull {
+  width: min(70vw, 70vh);
+  height: min(70vw, 70vh);
+  filter: drop-shadow(0 0 2em #ff2020);
+}
+.troll-scare.show {
+  animation: trollScare 1.1s ease-out;
+}
+.troll-scare.show .skull {
+  animation: trollSkull 1.1s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes trollScare {
+  0% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes trollSkull {
+  0% {
+    transform: scale(0.2) rotate(-20deg);
+  }
+  25% {
+    transform: scale(1.15) rotate(6deg);
+  }
+  40%,
+  60% {
+    transform: scale(1) rotate(-3deg) translate(2%, -1%);
+  }
+  50% {
+    transform: scale(1.04) rotate(3deg) translate(-2%, 1%);
+  }
+}
+body.troll-ko canvas {
+  filter: saturate(0.4) brightness(0.75) blur(1.5px);
+  transition: filter 0.3s;
+}
