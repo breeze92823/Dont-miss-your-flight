@@ -18,6 +18,12 @@ export const ART = {
   coin1: svg(coin(50, 52, 36)),
   coin2: svg(`${coin(38, 40, 28)}${coin(60, 62, 30)}`),
   coin3: svg(`${coin(34, 64, 26)}${coin(66, 64, 26)}${coin(50, 36, 27)}`),
+  // Sky Lounge Pass: a gold ticket with a leather armchair and a drink.
+  lounge: svg(`<defs><linearGradient id="a-lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#e09a1a"/></linearGradient><linearGradient id="a-lc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c8423a"/><stop offset="1" stop-color="#7a1f1a"/></linearGradient></defs>
+    <rect x="8" y="22" width="84" height="58" rx="10" fill="url(#a-lg)" ${O}/><circle cx="8" cy="51" r="8" fill="#14213d"/><circle cx="92" cy="51" r="8" fill="#14213d"/>
+    <path d="M24 70V46q0-10 10-10h14q10 0 10 10v24z" fill="url(#a-lc)" ${O}/><rect x="18" y="52" width="10" height="20" rx="4" fill="#a8322c" ${O}/><rect x="54" y="52" width="10" height="20" rx="4" fill="#a8322c" ${O}/>
+    <rect x="26" y="58" width="30" height="10" rx="3" fill="#c8423a" ${O}/>
+    <path d="M70 36h16l-8 12z" fill="#7cdcff" ${O}/><path d="M78 48v14M72 62h12" stroke="#14213d" stroke-width="3" stroke-linecap="round"/><circle cx="83" cy="35" r="3" fill="#ff5a6a"/>`),
   police: ICON.police,
   pilot: ICON.pilot,
   devil: ICON.devil,

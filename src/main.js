@@ -14,12 +14,13 @@ import { setNeonBloom } from './propkit.js'
 import { buildDefaultCharacter, loadBaseCharacter } from './avatar/character.js'
 import { applyProportions, attachEquippedAccessories } from './avatar/loader.js'
 import { disposeAnimator, makeAnimator } from './avatar/animator.js'
-import { initAudio, onAudioUnlocked, setIndoor, sfx, startAmbience, updateAmbience } from './audio.js'
+import { initAudio, onAudioUnlocked, setAdMute, setIndoor, setVolume, sfx, startAmbience, updateAmbience } from './audio.js'
 import { createFx } from './fx.js'
 import { buildExterior } from './airport/exterior.js'
 import { buildInterior } from './airport/interior.js'
 import { createCrowd } from './crowd.js'
 import { createQueue } from './queue.js'
+import { createLineBlockers } from './lineBlockers.js'
 import { createSecurity } from './security.js'
 import { buildSecurityHall } from './airport/securityHall.js'
 import { createSuitcase, makeBackpack, makeHat, wearHat, wearOnBack } from './suitcase.js'
@@ -28,8 +29,18 @@ import { createPowers } from './powers.js'
 import { createCutscene } from './cutscene.js'
 import { store } from './store.js'
 import { createTrolls } from './trolls.js'
+import { createGuards } from './guards.js'
 import { createTools } from './tools.js'
-import { initNet, net, onTrolled } from './net.js'
+import { claimAdReward, initNet, net, onTrolled, sendEmote, sendPresence, setPresenceSource } from './net.js'
+import { createRemotePassengers } from './remote.js'
+import { createEmotePlayer } from './emotes.js'
+import { ADS } from './config.js'
+import { buildGates } from './airport/gates.js'
+import { buildCabin } from './airport/cabin.js'
+import { createCity } from './airport/city.js'
+import { createBoarding, inGateArea, inLounge } from './boarding.js'
+import { createFlight } from './flight.js'
+import { SIT, seatCamera, seatRender, updateSeating } from './seating.js'
 
 // Boot order: Bloxity SDK -> renderer -> Rapier (async wasm) -> airport (curb,
 // terminal, hall), crowd + queue, player body, HUD -> avatar (async) -> the
@@ -41,6 +52,7 @@ let fx = null
 
 function applySetting(key, value) {
   if (key === 'camera_sensitivity') setCameraSensitivity(value)
+  else if (key === 'master_volume') setVolume(value / 100)
   else if (key === 'fullscreen') bloxity.requestFullscreen(value)
   else if (key === 'graphics_quality' && renderer) {
     const next = graphicsPreset(value)
@@ -107,7 +119,12 @@ bloxity.loadingStep('Building the airport')
 const exterior = buildExterior(scene, { lighting, fx })
 const interior = buildInterior(scene)
 const secHall = buildSecurityHall(scene, { makeArrow: interior.makeArrow, pillSign: interior.pillSign })
-const crowd = createCrowd(scene, 100)
+const gates = buildGates(scene, { makeArrow: interior.makeArrow, pillSign: interior.pillSign })
+const cabin = buildCabin(scene)
+const city = createCity(scene)
+const crowd = createCrowd(scene, 190)
+// The other real players: fellow passengers sharing the lines (staff stay bots).
+const remote = createRemotePassengers({ scene, crowd, me: () => myScene() })
 createPlayerBody()
 syncYawToPlayer()
 
@@ -125,29 +142,49 @@ const playerName = () => {
   const u = bloxity.authState.user
   return (u && (u.username || u.displayName || u.name)) || 'Passenger'
 }
-queue = createQueue({ scene, crowd, interior, fx, suitcase, hud, store, dialog: hud.dialog, getPlayerName: playerName, toSecurity: (npc) => security.adopt(npc) })
+queue = createQueue({ scene, crowd, interior, fx, suitcase, hud, store, dialog: hud.dialog, getPlayerName: playerName, toSecurity: (npc) => security.adopt(npc), remote })
 queue.newFlight(store.data.dest)
-security = createSecurity({ scene, crowd, hall: secHall, interior, fx, hud, store, queue })
+security = createSecurity({ scene, crowd, hall: secHall, interior, fx, hud, store, queue, onGates: (npc) => boarding.adopt(npc), remote })
+// Past security: the concourse + your gate (boarding.js), then the flight + destination (flight.js).
+let flight = null
+const boarding = createBoarding({ scene, crowd, gates, secHall, hud, store, queue, security, fx, onBoarded: () => flight.board(), remote })
+flight = createFlight({ crowd, cabin, city, hud, store, queue, fx, botShare: () => remote.botShare(), onArrived: () => showResultsAd(), onFlyAgain: () => {
+  bloxity.hideScreenAd()
+  boarding.reset()
+  security.reset()
+  guards.reset()
+} })
 powers = createPowers({ scene, crowd, fx, hud, camera, getPlayer: () => player.renderPosition })
 // Shop trolls, tools (passes / timed rewards), job panels, VIP; the server link (saves, Daily
 // Reward, trolls from the other players in the room).
 const trolls = createTrolls({ scene, crowd, fx, hud, store, getPlayer: () => player.renderPosition })
 const isPlaying = () => blend >= 0 && !document.body.classList.contains('cutscene')
 const tools = createTools({ scene, camera, canvas: renderer.domElement, crowd, fx, hud, powers, trolls, queue, security, player, getName: playerName, onHat: () => applyHat(), isPlaying })
+// Checkpoint guards + laser barriers: no security before check-in, no lanes before your turn, no gates before security.
+const guards = createGuards({ scene, crowd, fx, hud, store, queue, security, boarding, flight, trolls, isPlaying })
+const lineBlockers = createLineBlockers() // people in lines are solid: no walking through to cut ahead
+const lineSources = [queue, security, boarding]
 onTrolled(tools.receive)
 initNet()
 
 function onAction(name, arg) {
   switch (name) {
+    // Rewarded ad in the Shop: coins once the backend has verified the reward with Bloxity.
+    case 'canAdCoins':
+      return bloxity.rewardedAvailable()
+    case 'adCoins':
+      return watchAdForCoins()
     case 'skipLine':
-      if (security.mode === 'line') security.skipLine()
+      if (boarding.mode === 'line') boarding.skipLine()
+      else if (security.mode === 'line') security.skipLine()
       else if (!queue.skipLine()) hud.toast('Join the line first!')
       return
     case 'canBoard':
-      if (security.mode === 'cleared') {
-        hud.toast('Boarding opens in the next update!')
+      if (flight.active) {
+        hud.toast("You're already on your trip!")
         return false
       }
+      if (security.mode === 'cleared') return boarding.canFastBoard()
       if (queue.mode === 'turn' || queue.mode === 'desk' || ['turn', 'tray', 'detector'].includes(security.mode)) {
         hud.toast("It's already your turn!")
         return false
@@ -155,7 +192,8 @@ function onAction(name, arg) {
       return true
     case 'boardPlane':
       // Fast track: past the check-in desk, or (once checked in) past security.
-      if (queue.mode === 'checked') security.fastTrack()
+      if (queue.mode === 'checked' && security.mode === 'cleared') boarding.fastBoard()
+      else if (queue.mode === 'checked') security.fastTrack()
       else queue.fastTrack()
       return
     // Trolls (power buttons + Shop): run here and relayed to everyone in the server.
@@ -283,6 +321,79 @@ bloxity.onAvatarChanged(loadAvatar)
 bloxity.onProportionsChanged(() => applyProportions(avatar, bloxity.getProportions()))
 bloxity.onRespawnRequest(respawn)
 
+// --- Multiplayer + Bloxity platform features ---------------------------------------------------
+// Where you are, for who the other passengers see (cabin and city are per flight).
+function myScene() {
+  const zone = flight?.inCabin() ? 'cabin' : flight?.inCity() ? 'city' : 'airport'
+  return { zone, dest: queue?.destIndex ?? 0 }
+}
+// What the others see of you (net.js sends what changed).
+setPresenceSource(() => {
+  const s = myScene()
+  const anim = seatedNow ? 'sit' : security.pose ? 'tpose' : document.body.classList.contains('troll-ko') ? 'ko' : ''
+  return {
+    pose: { x: owner.x, y: owner.y, z: owner.z, yaw: owner.facing, speed: owner.speed, grounded: animIn.grounded, anim },
+    trip: {
+      zone: s.zone,
+      dest: s.dest,
+      line: queue.inLine ? 'checkin' : security.inLine ? 'security' : boarding.inLine ? 'boarding' : '',
+      hold: queue.hold || security.hold || boarding.hold || '',
+      suitcase: store.data.suitcase,
+      hat: store.data.hat || '',
+      vip: store.has('vip'),
+      pack: backpack.on,
+      bag: suitcase.state === 'follow' && suitcase.root.visible,
+    },
+  }
+})
+// Emotes from the portal's emote wheel: played on your avatar and relayed to everyone.
+const emote = createEmotePlayer()
+bloxity.onEmote((id) => {
+  if (id) emote.play(id)
+  else emote.stop()
+  sendEmote(id)
+})
+// Chat bubbles over whoever spoke (you or a fellow passenger).
+bloxity.onChat((m) => {
+  if (m.mine) return crowd.say(owner, m.text, 4)
+  const p = remote.find(m.userId, m.username)
+  if (p) remote.say(p, m.text)
+})
+// Ad breaks: the game pauses and goes quiet until the ad ends.
+let adBreak = false
+bloxity.onAdBreak((on) => {
+  adBreak = on
+  setAdMute(on)
+  if (!on) clock.getDelta() // don't count the ad as game time
+})
+// Rewarded ad: coins only once the backend has verified the reward token with Bloxity. Without a
+// server (offline / dev) a completed ad is trusted.
+async function watchAdForCoins() {
+  const r = await bloxity.showRewarded(ADS.reward.placement)
+  if (r.status !== 'completed') {
+    if (r.status !== 'skipped') hud.toast('No ad available right now. Try again later!')
+    return false
+  }
+  let coins = ADS.reward.coins
+  if (net.connected) {
+    const v = await claimAdReward(r.rewardToken)
+    if (!v.ok) {
+      hud.toast(v.reason === 'cooldown' ? 'One ad a minute! Try again soon.' : 'That ad reward could not be verified.')
+      return false
+    }
+    coins = v.coins ?? coins
+  }
+  const p = player.position
+  store.addCoins(coins, { x: p.x, y: p.y + 1.6, z: p.z }, true)
+  hud.big(`+${coins} COINS!`, 'gold', 1.4)
+  sfx('fanfare')
+  return true
+}
+// The results screen ad, a moment after landing at your destination.
+function showResultsAd() {
+  if (ADS.resultsScreen) setTimeout(() => flight.inCity() && bloxity.showScreenAd('results'), 3500)
+}
+
 // --- Modes + keys --------------------------------------------------------------
 let firstPerson = false
 onModeChanged((mode) => {
@@ -317,6 +428,7 @@ if (!cutscene) startGameplay()
 // --- Per-frame helpers ---------------------------------------------------------------
 const CARRY = { ArmR1: { x: 0.55, z: -0.1 }, ArmR2: { x: 0.15 } }
 const owner = { x: 0, y: 0, z: 0, facing: 0, speed: 0, indoor: false }
+let seatedNow = false
 const animIn = { grounded: true, speed: 0, verticalVelocity: 0, turn: 0, overlay: null, overlayWeight: 0 }
 const focus = new Vector3()
 const actors = []
@@ -324,7 +436,7 @@ let indoor = 0
 let stepDist = 0
 let wasGrounded = true
 let lastPrompt = null
-let securityToast = 0
+let wasDirected = false
 const lastPos = new Vector3()
 
 function setPrompt(text) {
@@ -339,14 +451,22 @@ let shownLoading = true
 let readySince = 0
 
 let simTime = 0
-renderer.setAnimationLoop(() => tick(Math.min(clock.getDelta(), 0.1)))
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.1)
+  if (!adBreak) tick(dt) // Bloxity ad break: the game pauses
+})
 
 function tick(dt, draw = true) {
   simTime += dt
   const t = simTime
 
+  // Seats: stand up on move / jump (before the physics step sees the jump), sit when walked into.
+  updateSeating(dt)
+  if (blend >= 0) boarding.preUpdate()
   stepPhysics(dt)
   interpolatePlayer()
+  const seated = seatRender()
+  seatedNow = !!seated
 
   const inCutscene = cutscene && !cutscene.done
   if (inCutscene) cutscene.update(dt)
@@ -382,7 +502,12 @@ function tick(dt, draw = true) {
   owner.z = playerGroup.position.z
   owner.facing = playerGroup.rotation.y
   owner.indoor = indoor > 0.5
-  if (security.pose) {
+  if (seated && !(cutscene && !cutscene.done)) {
+    animIn.overlay = SIT
+    animIn.overlayWeight = 1
+    animIn.speed = 0
+    animIn.grounded = true
+  } else if (security.pose) {
     animIn.overlay = security.pose
     animIn.overlayWeight = 1
   } else if (!animIn.overlay && suitcase.state === 'follow' && suitcase.root.visible) {
@@ -390,7 +515,10 @@ function tick(dt, draw = true) {
     animIn.overlayWeight = Math.min(1, owner.speed / 2.5)
   }
   animator?.update(dt, animIn)
+  // Bloxity emote on top of the pose; moving (or sitting down) stops it.
+  if (emote.apply(avatar, animator, dt, seated || security.pose ? 99 : owner.speed + (animIn.grounded ? 0 : 99))) sendEmote('')
   suitcase.update(dt, owner)
+  if (seated) seatCamera() // the avatar is placed; the camera may orbit another point (cabin aisle)
 
   // Footsteps + landing thump from the avatar's real motion.
   const moved = Math.hypot(owner.x - lastPos.x, owner.z - lastPos.z)
@@ -409,13 +537,28 @@ function tick(dt, draw = true) {
   }
   wasGrounded = animIn.grounded
 
+  // Fellow passengers (before the lines, which give them their places).
+  remote.update(dt, camera)
+  sendPresence(dt)
+
   // Gameplay systems.
   if (blend >= 0) {
     queue.update(dt, t)
     powers.update(dt, t)
-    // Camera: chase cam, blended in from the last cutscene frame.
-    updateCamera(blend < 1 ? chaseCam : camera, dt)
-    if (blend < 1) {
+    // Camera: a gate / flight cutscene drives it; otherwise the chase cam, blended in after a cutscene.
+    const directed = boarding.camera(camera) || flight.camera(camera)
+    if (directed) {
+      wasDirected = true
+      updateCamera(chaseCam, dt)
+    } else if (wasDirected) {
+      wasDirected = false
+      blend = 0
+      blendFrom.pos.copy(camera.position)
+      blendFrom.quat.copy(camera.quaternion)
+      blendFrom.fov = camera.fov
+      updateCamera(chaseCam, dt)
+    } else updateCamera(blend < 1 ? chaseCam : camera, dt)
+    if (blend < 1 && !directed) {
       blend = Math.min(1, blend + dt / CUTSCENE.blendOut)
       const e = blend * blend * (3 - 2 * blend)
       camera.position.lerpVectors(blendFrom.pos, chaseCam.position, e)
@@ -425,34 +568,23 @@ function tick(dt, draw = true) {
     }
     // Prompts + markers follow where you are and what you're doing.
     const inside = player.position.z < AIRPORT.facadeZ - 0.4
-    const free = queue.mode === 'free'
+    const free = queue.mode === 'free' && !flight.active
     interior.doorMarker.visible = !inside && free
     interior.queueMarker.visible = free
-    const sp = queue.mode === 'checked' ? security.prompts() : null
-    if (sp) setPrompt(sp.prompt)
+    const sp = flight.active ? { prompt: null, hint: null } : boarding.prompts() ?? (queue.mode === 'checked' ? security.prompts() : null)
+    if (sp) setPrompt(seated ? null : sp.prompt)
     else if (!free) setPrompt(null)
     else setPrompt(inside ? 'Join the queue!' : 'Run inside and check in!')
     hud.hint(sp?.hint ?? null)
-    // The doorway to security only lets you through once you're checked in; the gates are next.
-    securityToast -= dt
-    const sd = QUEUE.securityDoor
-    const pp = player.position
-    if (securityToast <= 0 && queue.mode !== 'checked' && Math.abs(pp.x - sd.x) < 4.5 && Math.abs(pp.z - sd.z) < 4) {
-      securityToast = 5
-      hud.toast('Check in first, then head to security.')
-    }
-    const g = SECURITY.gates
-    if (securityToast <= 0 && Math.abs(pp.x - g.x) < 4 && Math.abs(pp.z - g.z) < 4) {
-      securityToast = 5
-      hud.toast(security.mode === 'cleared' ? 'Boarding opens in the next update!' : 'Clear security first!')
-    }
+    // Skipping a step (security before check-in, the lanes before your turn, the gates before security)
+    // is stopped by the checkpoint guards + barriers (guards.js, updated below).
   } else {
     interior.doorMarker.visible = false
     interior.queueMarker.visible = false
   }
 
   // Indoor / outdoor ambience.
-  const inHall = owner.z < AIRPORT.facadeZ - 0.5 && owner.x > AIRPORT.hall.x0 && owner.x < SECURITY.hall.x1 ? 1 : 0
+  const inHall = flight.indoor() || inGateArea(owner.x, owner.z) || inLounge(owner.x, owner.z) || (!flight.inCity() && owner.z < AIRPORT.facadeZ - 0.5 && owner.x > AIRPORT.hall.x0 && owner.x < SECURITY.hall.x1) ? 1 : 0
   const nextIndoor = indoor + (inHall - indoor) * Math.min(1, dt * 2)
   if (Math.abs(nextIndoor - indoor) > 0.01 || (inHall && indoor < 0.99) || (!inHall && indoor > 0.01)) setIndoor(nextIndoor)
   indoor = nextIndoor
@@ -463,8 +595,13 @@ function tick(dt, draw = true) {
   actors.push(owner)
   queue.actors(actors)
   security.actors(actors)
+  remote.actors(actors)
   if (blend >= 0) security.update(dt, t, camera)
+  if (blend >= 0) boarding.update(dt, t, camera)
+  if (blend >= 0) guards.update(dt, t, camera) // checkpoint guards + barriers: no skipping a step
+  if (blend >= 0) flight.update(dt)
   if (blend >= 0) tools.update(dt) // pins NPCs, so before crowd.update
+  if (blend >= 0) lineBlockers.update(lineSources) // after the lines (and pinned NPCs) moved
   trolls.update(dt, t)
   secHall.update(dt, t)
   crowd.update(dt, camera)
@@ -501,5 +638,5 @@ if (import.meta.env.DEV) {
     for (let k = 0; k < seconds / step - 1; k++) tick(step, false)
     tick(step, true)
   }
-  window.__game = { advance, player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport, queue, security, crowd, store, hud, powers, tools, trolls, net, get cutscene() { return cutscene } }
+  window.__game = { advance, remote, player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport, queue, security, crowd, store, hud, powers, tools, trolls, net, boarding, flight, gates, cabin, city, guards, get cutscene() { return cutscene } }
 }

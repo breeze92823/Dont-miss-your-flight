@@ -11,10 +11,11 @@
 import { CanvasTexture, Sprite, SpriteMaterial, SRGBColorSpace, Vector3 } from 'three'
 import { AIRPORT, QUEUE, SECURITY } from './config.js'
 import { player, resetPlayer } from './player.js'
+import { lineStepClear } from './lineBlockers.js'
 import { setCameraYaw, syncYawToPlayer } from './camera.js'
 import { inputState } from './input.js'
 import { sfx } from './audio.js'
-import { angTo, makePath } from './linepath.js'
+import { angTo, makePath, syncRemoteLine } from './linepath.js'
 import { paintEmoji } from './airport/paint.js'
 
 const Y = AIRPORT.walkY
@@ -30,7 +31,9 @@ const GX = 89.5 // walkway east of the search area, up to the gates
 export const TPOSE = { ArmL1: { x: -0.05, z: 1.45 }, ArmR1: { x: -0.05, z: -1.45 }, ArmL2: { x: 0 }, ArmR2: { x: 0 } }
 const REACH = { ArmL1: { x: -1.2, z: 0.15 }, ArmR1: { x: -1.2, z: -0.15 }, ArmL2: { x: -0.2 }, ArmR2: { x: -0.2 }, Spine1: { x: 0.25 } }
 
-export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, queue }) {
+// remote (remote.js): real passengers take places in this line and hold the lanes / mats they use.
+export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, queue, onGates = null, remote = null }) {
+  const gone = (npc) => (onGates ? onGates(npc) : crowd.remove(npc))
   const D = hud.dialog
   const tmp = {}
   const v1 = new Vector3()
@@ -170,7 +173,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
   function joinLine(npc) {
     if (line.length >= SEC.maxInLine) {
       // Line full: straight through a quiet lane so the hall keeps flowing.
-      walk(npc, [{ x: 58.2, z: -43 }, { x: SEC.corridorX, z: -43 }, ...toGates(-43)], 3, () => crowd.remove(npc))
+      walk(npc, [{ x: 58.2, z: -43 }, { x: SEC.corridorX, z: -43 }, ...toGates(-43)], 3, () => gone(npc))
       return
     }
     line.push({ npc, s: PATH.project(npc.x, npc.z) })
@@ -184,7 +187,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     for (let i = 1; i < PATH.P.length && PATH.cum[i] <= S_JOIN + 0.01; i++) route.push(PATH.P[i])
     walk(npc, route, 3.1, () => joinLine(npc))
   }
-  const freeMat = (z) => mats.filter((m) => !m.busy).sort((a, b) => Math.abs(a.z - z) - Math.abs(b.z - z))[0] ?? null
+  const freeMat = (z) => mats.filter((m) => !m.busy && !remote?.held(`mat:${mats.indexOf(m)}`)).sort((a, b) => Math.abs(a.z - z) - Math.abs(b.z - z))[0] ?? null
 
   function startLane(npc, lane) {
     lane.busy = true
@@ -217,7 +220,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
             walk(npc, [{ x: SEC.trayEndX - 0.2, z: lane.z + 0.9 }], 2.6, () => {
               if (tr) tr.phase = 'off'
               if (hadPack) npc.hasPack = true
-              walk(npc, [{ x: SEC.corridorX, z: lane.z + 0.9 }, { x: SEC.corridorX, z: SEC.exitZ }, ...toGates(SEC.exitZ)], 3, () => crowd.remove(npc))
+              walk(npc, [{ x: SEC.corridorX, z: lane.z + 0.9 }, { x: SEC.corridorX, z: SEC.exitZ }, ...toGates(SEC.exitZ)], 3, () => gone(npc))
             })
           }
         })
@@ -243,7 +246,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
         if (s.tr) s.tr.phase = 'off'
         if (s.hadPack) s.npc.hasPack = true
         const m = s.mat
-        walk(s.npc, toGates(m.z), 3, () => crowd.remove(s.npc))
+        walk(s.npc, toGates(m.z), 3, () => gone(s.npc))
         later(1.5, () => (m.busy = false))
       }
     }
@@ -270,8 +273,9 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     sfx(alarm ? 'alarm' : 'clearBeep', { vol: Math.max(0.03, 0.35 - d * 0.012) })
   }
 
-  // --- Seed: a busy hall --------------------------------------------------------------------------------
-  for (let i = 0; i < SEC.startInLine; i++) {
+  // --- Seed: a busy hall (only when there are bot passengers, PASSENGERS.bots) ---------------------------
+  const seedBots = (remote?.botShare() ?? 1) > 0
+  for (let i = 0; seedBots && i < SEC.startInLine; i++) {
     PATH.at(slotS(i), tmp)
     const npc = crowd.add({ x: tmp.x, z: tmp.z, y: Y, yaw: tmp.yaw, bag: null, pack: Math.random() < 0.65 ? undefined : false })
     if (npc) {
@@ -280,7 +284,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     }
   }
   // Two mats already busy.
-  for (const m of [mats[0], mats[3]]) {
+  for (const m of seedBots ? [mats[0], mats[3]] : []) {
     const npc = crowd.add({ x: m.x, z: m.z, y: Y, yaw: Math.PI / 2, bag: null, pack: false })
     if (!npc) continue
     m.busy = true
@@ -451,6 +455,15 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
 
   const api = {
     adopt,
+    // For the other passengers (net trip): standing in this line / the lane or mat you hold.
+    get inLine() {
+      return state.mode === 'line'
+    },
+    get hold() {
+      if (['turn', 'tray', 'detector'].includes(state.mode) && state.lane) return `lane:${lanes.indexOf(state.lane)}`
+      if (['wait', 'tomat', 'search'].includes(state.mode) && state.mat) return `mat:${mats.indexOf(state.mat)}`
+      return ''
+    },
     setPack(p) {
       pack = p
     },
@@ -459,6 +472,11 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     },
     get pose() {
       return state.pose
+    },
+    // NPCs standing in the security line (solid to the player, see lineBlockers.js).
+    lineNpcs(out) {
+      for (const e of line) if (e.npc || e.remote) out.push(e.npc ?? e.remote)
+      return out
     },
     skipLine() {
       if (state.mode !== 'line') return false
@@ -522,21 +540,29 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
       arriveIn -= dt
       if (arriveIn <= 0) {
         arriveIn = rr(SEC.arriveEvery) * 2
-        if (line.length < SEC.maxInLine - 4) {
+        if (line.length < SEC.maxInLine - 4 && Math.random() < (remote?.botShare() ?? 1)) {
           const npc = crowd.add({ x: SEC.door.x - 3, z: SEC.door.z + 1, y: Y, yaw: Math.PI / 2, bag: null })
           if (npc) adopt(npc)
         }
       }
 
-      // Line shuffles forward.
+      // Real passengers take their places in the line.
+      if (remote) syncRemoteLine(line, remote.lineMembers('security'), PATH.project)
+      // Line shuffles forward (never closer than `spacing` to the one ahead, and nobody walks into the player).
+      const playerS = PATH.project(player.position.x, player.position.z)
       for (let i = 0; i < line.length; i++) {
         const e = line[i]
-        if (e.player) continue
+        if (e.player || e.remote) continue
         const gap = slotS(i) - e.s
         const speed = gap > 3 ? 3.3 : QUEUE.lineSpeed
-        const ds = Math.max(-speed * dt, Math.min(gap, speed * dt))
+        let ds = Math.max(-speed * dt, Math.min(gap, speed * dt))
+        if (ds > 0 && i > 0) ds = Math.min(ds, Math.max(0, line[i - 1].s - QUEUE.spacing - e.s))
+        PATH.at(e.s + ds, tmp)
+        if (!lineStepClear(e.npc, tmp.x, tmp.z, playerS > e.s)) {
+          e.npc.speed = 0 // the player is in the way: wait
+          continue
+        }
         e.s += ds
-        PATH.at(e.s, tmp)
         e.npc.x = tmp.x
         e.npc.z = tmp.z
         e.npc.speed = Math.abs(ds) / dt
@@ -545,8 +571,8 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
       // Head of the line to a free open lane.
       frontCooldown -= dt
       const head = line[0]
-      if (head && frontCooldown <= 0 && head.s >= PATH.total - 0.15) {
-        const free = open.filter((l) => !l.busy)
+      if (head && !head.remote && frontCooldown <= 0 && head.s >= PATH.total - 0.15) {
+        const free = open.filter((l) => !l.busy && !remote?.held(`lane:${lanes.indexOf(l)}`))
         if (free.length) {
           const lane = pick(free)
           line.shift()
@@ -591,7 +617,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
       if (chatterIn <= 0) {
         chatterIn = 5 + Math.random() * 6
         const e = pick(line)
-        if (e && !e.player) crowd.say(e.npc, pick(SEC.passengerLines), 3)
+        if (e?.npc) crowd.say(e.npc, pick(SEC.passengerLines), 3)
       }
       hall.setTimer(Math.max(0, line.length * 2.2 + (open.every((l) => l.busy) ? 4 : 0) - (t % 2.2)))
 

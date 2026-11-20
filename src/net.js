@@ -1,5 +1,9 @@
 // Colyseus link to ../Dont-miss-your-flight-backend (room "world"). Never throws and never blocks
-// play: without a server the game runs on the browser save.
+// play: without a server the game runs on the browser save and you are the only passenger.
+//
+// Identity: a signed-in player sends their Bloxity game token (Legion.SDK.auth.getToken()); the
+// server verifies it with Bloxity and only then loads / saves that account. Guests (and local dev
+// without the SDK, `dev-...` ids the dev server trusts) play unsaved on the server.
 //
 // Saves: a signed-in player's progress lives on the server. On join it answers `progress` (the
 // saved doc -> store.hydrate), `noProgress` (new account, guest or no database: keep the current
@@ -8,18 +12,20 @@
 // when the tab hides). Guests, and everyone while the server has not answered, keep the browser
 // save (localStorage) instead.
 //
-// Daily Reward: server-authoritative for signed-in players (`daily` / `claimDaily` -> `dailyResult`,
-// on the server's UTC days); guests and offline players use the store's local calendar, so a reload
-// never re-unlocks a day.
+// Fellow passengers: everyone in the room is on the roster (room.state.players, drawn by remote.js).
+// This client keeps its own entry current: `pose` ~10/s, `trip` (zone / line / held spot / what you
+// carry) and `setAvatar` when they change, `emote` when you play one (sendPresence each frame).
 //
-// Trolls: `sendTroll(id, text)` relays a bought troll (or a job broadcast) to everyone else in the
-// room; theirs arrive through the handler set with `onTrolled` as { id, from, text }.
+// Daily Reward: server-authoritative for signed-in players (`daily` / `claimDaily` -> `dailyResult`,
+// on the server's UTC days); guests and offline players use the store's local calendar.
+// Trolls: `sendTroll(id, text)` relays to everyone else; theirs arrive through `onTrolled`.
+// Rewarded ads: `claimAdReward(token)` -> the server verifies the token with Bloxity -> { ok, coins }.
 import { Client } from '@colyseus/sdk'
-import { DEV_MODE, NET, SERVER_URL } from './config.js'
+import { DEV_MODE, NET, REMOTE, SERVER_URL } from './config.js'
 import { store } from './store.js'
-import { authState, canResolveServer, getPfp, launchRoomId, locateRoom, resolveServerEndpoint, subscribeAuth, updateRoom } from './bloxity.js'
+import { authState, canResolveServer, getPfp, getToken, launchRoomId, locateRoom, lookJson, resolveServerEndpoint, subscribeAuth, updateRoom } from './bloxity.js'
 
-export const net = { room: null, connected: false, hydrated: false, daily: null }
+export const net = { room: null, connected: false, hydrated: false, daily: null, you: null }
 
 // --- Identity ---------------------------------------------------------------------
 function storedId(key, make) {
@@ -34,15 +40,20 @@ function storedId(key, make) {
 const rand = () => Math.random().toString(36).slice(2, 8)
 const GUEST = storedId('dmyf.guest', () => `guest-${rand()}`)
 // Dev mode (no SDK) plays as a per-browser dev id, so a local server with Mongo keeps its save.
-const DEV = DEV_MODE ? storedId('dmyf.dev', () => `dev-${rand()}`) : ''
+// `?dev=<name>` picks another dev player (two tabs of one browser as two passengers).
+const devParam = DEV_MODE ? new URLSearchParams(location.search).get('dev')?.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) : ''
+const DEV = DEV_MODE ? (devParam ? `dev-${devParam}` : storedId('dmyf.dev', () => `dev-${rand()}`)) : ''
 
+// { userId (this browser's key for the account), username, token (proof for the server) }
 function identity() {
-  if (DEV) return { userId: DEV, username: `Dev ${DEV.slice(4)}` }
+  if (DEV) return { userId: DEV, username: `Dev ${DEV.slice(4)}`, token: '' }
   const u = authState.user
   const id = u && (u._id || u.id || u.userId || u.uid)
-  if (!id) return { userId: GUEST, username: authState.guest?.displayName || authState.guest?.username || 'Guest' }
-  return { userId: String(id), username: String(u.displayName || u.username || u.name || 'Player') }
+  if (!id) return { userId: GUEST, username: authState.guest?.displayName || authState.guest?.username || 'Guest', token: '' }
+  return { userId: String(id), username: String(u.displayName || u.username || u.name || 'Player'), token: getToken() }
 }
+// What the server is sent: the token for accounts, a trusted dev id locally, a name for guests.
+const wire = (id) => ({ token: id.token || undefined, userId: id.token ? undefined : id.userId, username: id.username, pfp: getPfp() })
 const isGuestId = (id) => id.startsWith('guest-')
 export const hasServer = () => !!(SERVER_URL || canResolveServer())
 let sentId = ''
@@ -67,18 +78,15 @@ function serverSave() {
   send('saveProgress', JSON.parse(snap))
 }
 // The browser copy: a guest's (or a serverless session's) only save, and for an account a mirror
-// that brings its progress back when the server has none (a server without a database, a first
-// join). Each account mirrors under its own key so accounts never mix.
+// that brings its progress back when the server has none. Each account mirrors under its own key.
 const accountKey = () => `${store.KEY}:${sentId}`
 let loadedId = ''
-// Until the server has answered for this account, the state is still the guest save it started on.
 const localKey = () => (!hasServer() || isGuest() || loadedId !== sentId ? store.KEY : accountKey())
 export function saveNow() {
   dirty = false
   if (onServer()) serverSave()
   if (authState.ready || !hasServer()) store.localSave(localKey())
 }
-// Every store change: the browser save at once when it is the one in use, the server's batched.
 store.setSaveHook(() => {
   dirty = true
   if (!onServer()) saveNow()
@@ -103,18 +111,16 @@ const changed = (what) => {
   for (const fn of listeners) fn(what)
 }
 const serverDaily = () => onServer() && net.daily
-// { unlocked, claimed[], nextAt } on the clock in use.
 export function dailyView() {
   if (serverDaily()) return net.daily
   return store.localDaily()
 }
-// Time (ms) on the same clock as dailyView().nextAt.
 export const dailyNow = () => (serverDaily() ? serverNow() : Date.now())
 
 const waiting = {}
-function request(type, payload, answer) {
+function request(type, payload, answer, needHydrated = true) {
   return new Promise((resolve) => {
-    if (!net.connected || !net.hydrated) return resolve({ ok: false, reason: 'offline' })
+    if (!net.connected || (needHydrated && !net.hydrated)) return resolve({ ok: false, reason: 'offline' })
     if (waiting[answer]) return resolve({ ok: false, reason: 'busy' })
     const timer = setTimeout(() => {
       delete waiting[answer]
@@ -128,42 +134,101 @@ function request(type, payload, answer) {
     send(type, payload)
   })
 }
-// Claims day i (0-based): { ok, reason? }. The caller grants the reward only on ok.
 export async function claimDaily(i) {
   if (!serverDaily()) return { ok: store.claimLocalDaily(i), reason: 'locked' }
   return request('claimDaily', { day: i }, 'dailyResult')
 }
-// The countdown reached the next day: the server unlocks it (the local calendar rolls by itself).
 export function refreshDaily() {
   if (serverDaily()) send('dailyRefresh', {})
   changed('daily')
 }
+
+// --- Rewarded ads -----------------------------------------------------------------------------
+// The server checks the reward token with Bloxity: { ok, coins?, reason? }. Offline: { ok: false, reason: 'offline' }.
+export const claimAdReward = (rewardToken) => request('adReward', { rewardToken }, 'adRewardResult', false)
 
 // --- Trolls ------------------------------------------------------------------------------
 let onTroll = () => {}
 export const onTrolled = (fn) => (onTroll = fn)
 export const sendTroll = (id, text = '') => net.connected && send('troll', { id, text })
 
+// --- Presence (this client's roster entry) ------------------------------------------------------
+// main.js hands over what to report: () => { pose: {x,y,z,yaw,speed,grounded,anim}, trip: {...} }.
+let presenceSource = null
+export const setPresenceSource = (fn) => (presenceSource = fn)
+const sentPresence = { pose: '', trip: '', avatar: null, emote: '' }
+let poseIn = 0
+let tripIn = 0
+const round = (v, k = 100) => Math.round(v * k) / k
+function currentPresence() {
+  try {
+    const p = presenceSource?.()
+    if (!p) return null
+    const q = p.pose
+    return { pose: { x: round(q.x), y: round(q.y), z: round(q.z), yaw: round(q.yaw, 1000), speed: round(q.speed, 10), grounded: !!q.grounded, anim: q.anim || '' }, trip: p.trip }
+  } catch {
+    return null
+  }
+}
+// Every frame: sends what changed, throttled.
+export function sendPresence(dt) {
+  if (!net.connected) return
+  poseIn -= dt
+  tripIn -= dt
+  if (poseIn > 0 && tripIn > 0) return
+  const p = currentPresence()
+  if (!p) return
+  if (poseIn <= 0) {
+    poseIn = REMOTE.poseEvery
+    const s = JSON.stringify(p.pose)
+    if (s !== sentPresence.pose) {
+      sentPresence.pose = s
+      send('pose', p.pose)
+    }
+  }
+  if (tripIn <= 0) {
+    tripIn = REMOTE.tripEvery
+    const s = JSON.stringify(p.trip)
+    if (s !== sentPresence.trip) {
+      sentPresence.trip = s
+      send('trip', p.trip)
+    }
+    const look = lookJson()
+    if (look !== sentPresence.avatar) {
+      sentPresence.avatar = look
+      send('setAvatar', { avatar: look })
+    }
+  }
+}
+export function sendEmote(id) {
+  sentPresence.emote = id || ''
+  if (net.connected) send('emote', { id: sentPresence.emote })
+}
+
 // --- Connection -----------------------------------------------------------------------------
 function attach(room) {
   net.room = room
   net.connected = true
+  const you = (msg) => {
+    if (msg?.you && typeof msg.you === 'object') net.you = msg.you
+  }
   room.onMessage('progress', (doc) => {
     net.hydrated = true
     lastSaved = ''
     keepClock(doc)
+    you(doc)
     // A reconnect under the same identity: this tab is newer than the save, so push it instead.
     if (loadedId === sentId || !doc || isGuest()) return saveNow()
     loadedId = sentId
-    store.hydrate(doc)
+    const { you: _you, serverTime: _t, ...save } = doc
+    store.hydrate(save)
     saveNow()
     changed('progress')
   })
   room.onMessage('noProgress', (msg) => {
     net.hydrated = true
     keepClock(msg)
-    // Nothing on the server: this account's browser mirror, if it has one (else the current
-    // state carries over, e.g. a guest signing up keeps what they earned).
+    you(msg)
     const mirror = loadedId !== sentId && !isGuest() ? store.localLoad(accountKey()) : null
     if (mirror) store.hydrate(mirror)
     loadedId = sentId
@@ -177,7 +242,7 @@ function attach(room) {
   })
   room.onMessage('daily', (d) => {
     keepClock(d)
-    net.daily = d // { unlocked, claimed, nextAt, serverTime }
+    net.daily = d
     changed('daily')
   })
   room.onMessage('dailyResult', (r) => {
@@ -188,21 +253,24 @@ function attach(room) {
     }
     waiting.dailyResult?.(r)
   })
+  room.onMessage('adRewardResult', (r) => waiting.adRewardResult?.(r))
   room.onMessage('trolled', (m) => {
     if (typeof m?.id === 'string') onTroll({ id: m.id, from: String(m.from || 'Someone').slice(0, 32), text: String(m.text || '') })
   })
-  // The backend shares its protocol with other games: these are not used here.
-  for (const t of ['spins', 'spinResult', 'leaderboard']) room.onMessage(t, () => {})
   room.onLeave(() => {
     if (net.room !== room) return
     net.room = null
     net.connected = false
     net.hydrated = false
     net.daily = null
+    sentPresence.pose = sentPresence.trip = ''
+    sentPresence.avatar = null
     updateRoom('')
     changed('daily')
+    changed('room')
     setTimeout(connect, NET.rejoin * 1000)
   })
+  changed('room')
 }
 
 let launchRoom = launchRoomId()
@@ -219,9 +287,9 @@ async function joinLaunchRoom(options) {
   }
   return null
 }
-async function joinAnyRoom(options) {
+async function joinAnyRoom(options, userId) {
   if (SERVER_URL) return { room: await new Client(SERVER_URL).joinOrCreate('world', options), relay: '' }
-  const { endpoint, relayRoomId } = await resolveServerEndpoint(/^(guest|dev)-/.test(options.userId) ? undefined : options.userId)
+  const { endpoint, relayRoomId } = await resolveServerEndpoint(/^(guest|dev)-/.test(userId) ? undefined : userId)
   return { room: await new Client(endpoint).joinOrCreate('world', options), relay: relayRoomId }
 }
 
@@ -233,8 +301,16 @@ async function connect() {
   try {
     const id = identity()
     sentId = id.userId
-    const { room, relay } = (await joinLaunchRoom({ ...id, pfp: getPfp() })) ?? (await joinAnyRoom({ ...id, pfp: getPfp() }))
+    const p = currentPresence()
+    const look = lookJson()
+    const options = { ...wire(id), ...(p && { pose: p.pose, trip: p.trip }), avatar: look }
+    const { room, relay } = (await joinLaunchRoom(options)) ?? (await joinAnyRoom(options, id.userId))
     retryIn = NET.retry
+    if (p) {
+      sentPresence.pose = JSON.stringify(p.pose)
+      sentPresence.trip = JSON.stringify(p.trip)
+    }
+    sentPresence.avatar = look
     attach(room)
     updateRoom(relay ? `${relay}~${room.roomId}` : room.roomId)
   } catch (err) {
@@ -255,7 +331,8 @@ export function initNet() {
     if (!s.ready) return
     if (!net.connected) return void connect()
     const id = identity()
-    if (id.userId === sentId) return send('identify', { username: id.username, pfp: getPfp() })
+    // Same account (a name / picture update): the token again, so the server keeps it signed in.
+    if (id.userId === sentId) return send('identify', wire(id))
     // Save under the OLD identity before switching.
     saveNow()
     net.hydrated = false
@@ -263,6 +340,6 @@ export function initNet() {
     // Signed out: back to this browser's guest save (the account's progress stays on the server).
     if (isGuestId(id.userId)) store.hydrate(store.localLoad(store.KEY))
     sentId = id.userId
-    send('identify', { ...id, pfp: getPfp() })
+    send('identify', wire(id))
   })
 }

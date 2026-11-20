@@ -57,6 +57,7 @@ export const QUEUE = {
   arriveEvery: [2.2, 3.6], // s between new passengers joining the back
   serveTime: [5.5, 8.5], // s an NPC spends at a desk
   lineSpeed: 2.4, // m/s people shuffle forward
+  block: { radius: 0.38, height: 1.7 }, // solid capsule around every NPC in a line, so the player can't cut through it
   autoSpeed: 5.5, // m/s the player is walked to their spot
   securityDoor: { x: 29.2, z: -33 },
   reward: 30, // coins for checking in
@@ -65,8 +66,8 @@ export const QUEUE = {
 // --- Economy: coins only (never premium currency) ------------------------------
 export const START_COINS = 205
 export const PRICES = {
-  skipLine: 120,
-  boardPlane: 300, // fast-track: skip the line and the desk
+  skipLine: 1200,
+  boardPlane: 3000, // fast-track: skip the line and the desk
   beSecurity: 250,
   bePilot: 500,
   luggageRain: 60,
@@ -75,10 +76,10 @@ export const PRICES = {
   scareAll: 50,
   announce: 30,
   emoji: 0,
-  skipQuestions: 60,
+  skipQuestions: 600,
   pickSeat: 40,
-  skipSearch: 80,
-  skipTime: 150, // skip the wait for your plane, or the rest of the flight
+  skipSearch: 800,
+  skipTime: 1500, // skip the wait for your plane, or the rest of the flight
   loungePass: 350,
 }
 export const SUITCASES = [
@@ -109,7 +110,7 @@ export const CHECKIN = {
   questions: 15, // asked per check-in (drawn from QUESTIONS)
   typeSpeed: 40, // characters per second of the agent's typewriter
   hold: 0.9, // s a reply stays before the next line
-  skipQuestions: 60, // coins
+  skipQuestions: PRICES.skipQuestions, // coins
   pickSeat: 40, // coins
   upgrades: [
     { id: 'first', name: 'First Class', price: 290, style: 'purple' },
@@ -170,7 +171,7 @@ export const SECURITY = {
   arriveEvery: [3, 5],
   checkTime: [5, 8], // s an NPC spends being searched
   searchTime: 45, // s the player's search takes
-  skipSearch: 80, // coins
+  skipSearch: PRICES.skipSearch, // coins
   reward: 40, // coins for clearing security
   // Items the officer can "find". `tag` items appear when your check-in answers mention them.
   items: [
@@ -196,6 +197,91 @@ export const SECURITY = {
   officerLines: ['Step onto the mat. Arms out!', 'Arms out, please. Random check!', 'Beep beep. You know what that means.', 'Random checks happen to everyone.', 'Hold still...', 'Okay... one more. *pop*', 'Almost done...'],
   officerFinds: ['Ow! OW! Who packs a cactus?!', "He's dressed better than me.", 'Okay, one more. *pop*', 'No liquids over 100 ml, right?', 'Is this... glitter?', 'Okay... you\'re free to go.', 'All clear! Have a nice flight!'],
   passengerLines: ['who else is waiting', 'im so bored', 'i have nothing in my pockets i swear', 'do i have to take my shoes off?', 'they took my shampoo', 'is the beep about my belt?', 'my gate is closing!!', 'it tickles lol'],
+}
+
+// --- Checkpoint guards + barriers (guards.js): nobody skips a step ------------------------------------
+// Each checkpoint closes the area behind it (`zone`) until you've done its step (`need`): `checked` =
+// checked in at a desk, `screening` = called from the security line (or past it), `cleared` = through
+// security. A laser gate / fence blocks the way (solid to you only while you're not allowed; passengers
+// who are allowed walk straight through). The guard first instructs you (walk into `warn`), gives a last
+// warning when you push the barrier again, then shoves you back. Anyone who still ends up inside a zone
+// is caught (inside `chase`) or radioed in, and escorted out to `safe`. Zones / boxes: x0 < x1, z0 < z1.
+export const GUARDS = {
+  scale: 1.12, // guards are a bit bigger than passengers
+  walkSpeed: 2.2,
+  runSpeed: 6.8, // m/s when rushing the player
+  contact: 1.1, // m from the barrier plane that counts as pushing it (player radius is 0.75)
+  calmAfter: 14, // s away from a checkpoint before its guard forgets your strikes
+  instructEvery: 9, // s between repeated instructions while you hang around
+  shove: { speed: 10.5, up: 5, stun: 0.85 }, // knock-back given to the player
+  checkpoints: [
+    {
+      id: 'entry',
+      need: 'checked',
+      guard: { x: 28.15, z: -37.0, face: -Math.PI / 2, skin: '#c58a5c', tag: 'officer reyes' },
+      lectern: { x: 27.55, z: -38.3, face: -Math.PI / 2 },
+      gate: { x: 29.35, z0: -35.5, z1: -30.5, decal: 'stop · check-in first' },
+      warn: { x0: 23.5, x1: 30.2, z0: -39.5, z1: -26.5 },
+      zone: { x0: 30.1, x1: 92.3, z0: -46.5, z1: -12 },
+      chase: { x0: 20, x1: 29.2, z0: -42, z1: -24 },
+      safe: { x: 24.8, z: -33 },
+      goTo: { x: 12, z: -18.5 }, // where they point you: the back of the check-in queue
+      instruct: ['Hold it! Check in at the desks first.', 'Boarding pass first! The check-in queue is that way.', 'No pass, no entry. Check in first, friend!'],
+      toast: 'Security is closed to you: join the check-in queue first!',
+    },
+    {
+      id: 'lanes',
+      need: 'screening',
+      guard: { x: 59.2, z: -28.25, face: -Math.PI / 2, skin: '#f3c99c', tag: 'officer park' },
+      fence: { x: 60.3, z0: -45.75, z1: -12.65, posts: [-12.9, -15.5, -18.1, -20.7, -23.2, -25.8, -28.3, -30.8, -33.2, -35.8, -38.4, -41.0, -44.2, -45.6], decal: 'screening · wait to be called' },
+      warn: { x0: 58.3, x1: 60.3, z0: -46, z1: -12.4 },
+      zone: { x0: 60.3, x1: 92.3, z0: -46.5, z1: -12 },
+      chase: { x0: 57.9, x1: 63.0, z0: -45.6, z1: -12.8 }, // reaches just past the fence
+      safe: { x: 33.4, z: -36.6 },
+      goTo: { x: 34.5, z: -32.4 }, // the back of the security line
+      instruct: ['Whoa! Join the security line first.', 'No cutting! The line starts by the doorway.', 'Wait to be called, please. Back of the line!'],
+      toast: 'No skipping: join the security line by the doorway and wait to be called.',
+    },
+    {
+      id: 'gates',
+      need: 'cleared',
+      guard: { x: 90.35, z: -32.75, face: -Math.PI / 2, skin: '#8d5a3b', tag: 'officer ade' },
+      lectern: { x: 91.0, z: -34.2, face: -Math.PI / 2 },
+      gate: { x: 91.25, z0: -30.5, z1: -25.5, decal: 'stop · clear security first' },
+      warn: { x0: 86.6, x1: 91.4, z0: -36.5, z1: -20 },
+      zone: { x0: 92.3, x1: 210, z0: -100, z1: -15 },
+      chase: { x0: 86.4, x1: 91.15, z0: -44.5, z1: -14 },
+      safe: { x: 87.9, z: -28 },
+      goTo: { x: 57.6, z: -18.5 },
+      instruct: ['Not so fast! Clear security first.', 'Screening first, then the gates.', 'Nobody reaches the gates without a security check!'],
+      toast: 'Clear the security check before heading to the gates.',
+    },
+  ],
+  lastWarning: ['LAST WARNING! Step away from the barrier!', 'I said STOP. Last warning!', 'Do not test me. Back off!'],
+  force: ["That's it! Back you go!", 'Rules are rules!', 'Not on my watch!'],
+  breach: ['STOP RIGHT THERE!', "Hey! You can't be back here!", 'Freeze! Out you go!'],
+  radio: ['Control, we have a line skipper!', 'Code yellow! Runner past the checkpoint!', 'Backup! Passenger in a closed area!'],
+  pass: ['Go right ahead!', 'All good, carry on.', 'Have a great flight!', 'Thank you, move along.'],
+  // Cutting in line: standing in a line's lane (within `laneHalf` of its path, `pastJoin` m past its
+  // join point) ahead of anyone waiting in it, without having joined. The passengers you cut in front of
+  // complain, the line's guard whistles + points to the back; moving `forward` m up the line or staying
+  // `loiter` s gets you escorted to the back of the line (where you join it). The boarding line's guard
+  // is a marshal posted at the VIP priority lane, which is VIP-only (`priority` box).
+  cutting: {
+    laneHalf: 1.05,
+    pastJoin: 1.0,
+    forward: 1.2,
+    loiter: 5,
+    priorityLoiter: 1.2,
+    priority: { x0: 154.1, x1: 157.1, z0: -59.8, z1: -37.6 },
+    marshal: { x: 153.1, z: -36.3, face: -Math.PI / 2, skin: '#e0a979', tag: 'officer lund' },
+    complain: ['Hey! No cutting!', 'Back of the line!', "Excuse me, we've been waiting!", 'Rude!', 'The line starts back there!', 'Wow. Really?'],
+    shout: ['Hey! No cutting in line!', 'Back of the line, please!', 'Everyone waits their turn!'],
+    sent: ['Back of the line. Wait your turn!', 'Nice try. Back you go.', 'Line starts here, friend.'],
+    priorityShout: ['VIP priority lane only!', 'Priority boarding is for VIPs!', 'No VIP tag, no priority lane!'],
+    toast: 'No cutting! Join at the back of the line.',
+    priorityToast: 'The priority lane is for VIPs. Join the boarding line!',
+  },
 }
 
 export const AIRLINE = 'skyhop air'
@@ -419,6 +505,7 @@ export const SETTINGS = {
   camera_sensitivity: { def: '1', type: 'number', min: 0.1, max: 5 },
   show_fps: { def: 'false', type: 'bool' },
   fullscreen: { def: 'false', type: 'bool' },
+  master_volume: { def: '80', type: 'number', min: 0, max: 100 },
 }
 
 // The base rig, measured from player.glb: origin at the feet, 6.4 units tall at bind pose.
@@ -606,4 +693,44 @@ export const JOBS = {
   holdTime: 10, // s "Add Time" holds someone
   turbulenceCooldown: 12,
   takeoffCooldown: 15,
+}
+
+// --- Multiplayer: fellow passengers (net.js, remote.js; backend presence.ts) ------------------------
+// Everyone else in your server is drawn as a passenger walking the same airport, standing in the same
+// lines (they take a place in your check-in / security / boarding line and hold the desk, lane, search
+// mat or scanner they use) and flying with you when their flight matches yours. The staff (desk and
+// gate agents, security officers, shop clerks, bouncer, bartender, cabin crew) are always bots.
+// bots: false = there are NO bot passengers at all (no line, desk, security, gate, lounge or cabin
+// passengers): the only passengers are the real players in your server. bots: true brings them back
+// as a backfill while the server is quiet (each real passenger in the airport replaces one in
+// `fullAt`-th of them; at `fullAt` real passengers no new ones arrive).
+export const PASSENGERS = {
+  bots: false,
+  fullAt: 6, // (bots: true only) real passengers in the airport at which bot passengers stop arriving
+}
+export const REMOTE = {
+  poseEvery: 0.1, // s between pose updates sent
+  tripEvery: 0.5, // s between checks for a changed trip (zone / line / hold / look)
+  delay: 0.15, // s others are drawn behind real time (smooth interpolation)
+  drawDist: 70, // m: passengers further away are hidden
+  maxDrawn: 24, // full avatars drawn at once (the nearest)
+  tagDist: 26, // m: name tags shown this close
+}
+// --- Bloxity ads (bloxity.js): rewarded ad for coins (verified by the backend), the results screen
+// ad shown on landing. Coins per ad = the backend's AD_REWARD_COINS.
+export const ADS = {
+  reward: { placement: 'free-coins', coins: 150, cooldown: 60 },
+  resultsScreen: true,
+}
+// --- Bloxity leaderboards: the ids the backend reports to (constants.ts BOARDS). define() makes the
+// portal's trophy button show them.
+export const LEADERBOARDS = [
+  { id: 'flights', label: 'Flights Taken', order: 'desc', mode: 'best', format: 'number', reset: 'none' },
+  { id: 'destinations', label: 'Places Visited', order: 'desc', mode: 'best', format: 'number', reset: 'none' },
+  { id: 'coins', label: 'Richest Travellers', order: 'desc', mode: 'latest', format: 'compact', reset: 'none' },
+]
+// --- Bloxity emotes (emotes.js): the portal's emote wheel; an emote stops when you move.
+export const EMOTES = {
+  blendIn: 0.12, // s
+  stopSpeed: 0.6, // m/s of movement that cancels an emote
 }

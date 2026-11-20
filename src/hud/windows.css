@@ -603,3 +603,28 @@
   font-size: 0.5em;
   filter: none;
 }
+
+/* Rewarded ad button (Shop): free coins for watching an ad. */
+.sh-adcoins {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 0.6em;
+  border: 3px solid #1d6b2a;
+  border-radius: 14px;
+  background: linear-gradient(#7cf08a, #36c24c);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  font-size: clamp(14px, 2.2vw, 18px);
+  text-shadow: 0 2px 0 #1d6b2a;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.sh-adcoins:disabled { filter: grayscale(0.6); opacity: 0.7; }
+.sh-adcoins .sh-ad-tag { background: #fff; color: #1d6b2a; border-radius: 6px; padding: 0 0.4em; font-size: 0.8em; text-shadow: none; }
+.sh-adcoins .cprice { display: inline-flex; align-items: center; gap: 0.2em; }
+.sh-adcoins svg { width: 1.2em; height: 1.2em; }

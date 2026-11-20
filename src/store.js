@@ -19,6 +19,7 @@ const defaults = () => ({
   passes: [],
   visited: [],
   dest: 0,
+  flights: 0,
   timed: {},
   dailyLocal: { day: 0, last: -1, claimed: [] },
 })
@@ -123,6 +124,12 @@ export const store = {
     for (const id of gone) emit({ type: 'expired', id })
     return gone
   },
+  // A flight landed at its destination (the Flights Taken leaderboard).
+  addFlight() {
+    data.flights++
+    save()
+    emit({ type: 'flights', n: data.flights })
+  },
   visit(code) {
     if (data.visited.includes(code)) return false
     data.visited.push(code)
@@ -167,6 +174,7 @@ export const store = {
       passes: [...data.passes],
       visited: [...data.visited],
       dest: data.dest,
+      flights: data.flights,
       timed: { ...data.timed },
       dailyLocal: { ...data.dailyLocal, claimed: [...data.dailyLocal.claimed] },
     }
@@ -182,6 +190,7 @@ export const store = {
     data.passes = isList(src.passes) ? [...src.passes] : d.passes
     data.visited = isList(src.visited) ? [...src.visited] : d.visited
     data.dest = Number.isInteger(src.dest) ? src.dest : d.dest
+    data.flights = Number.isInteger(src.flights) && src.flights > 0 ? src.flights : d.flights
     data.timed = src.timed && typeof src.timed === 'object' ? { ...src.timed } : {}
     const dl = src.dailyLocal
     data.dailyLocal = dl && Number.isInteger(dl.day) && Array.isArray(dl.claimed) ? { day: dl.day, last: dl.last ?? -1, claimed: [...dl.claimed] } : d.dailyLocal

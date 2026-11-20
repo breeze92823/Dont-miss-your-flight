@@ -14,7 +14,6 @@ import {
   CanvasTexture,
   CircleGeometry,
   Color,
-  CylinderGeometry,
   DynamicDrawUsage,
   IcosahedronGeometry,
   InstancedMesh,
@@ -34,7 +33,9 @@ import { jetLoop, registerSfx, sfx } from './audio.js'
 import { paintEmoji } from './airport/paint.js'
 import { makeAirliner } from './airport/vehicles.js'
 import { ART } from './hud/art.js'
+import { lathe } from './detail.js'
 import './trolls.css'
+import { deathScreen } from './bloxity.js'
 
 const ZERO = new Matrix4().makeScale(0, 0, 0)
 const rnd = (a) => (Math.random() - 0.5) * 2 * a
@@ -180,10 +181,13 @@ export function createTrolls({ scene, crowd, fx, hud, getPlayer, store }) {
 
   // --- Coin Shower ----------------------------------------------------------------------------------
   const COINS = 30
-  const coinMesh = new InstancedMesh(new CylinderGeometry(0.28, 0.28, 0.07, 18), new MeshStandardMaterial({ color: '#ffc21a', metalness: 0.75, roughness: 0.25, emissive: '#6a4200', emissiveIntensity: 0.4 }), COINS)
+  // Minted coin: raised rim around a recessed face (turned profile, axis = Y like the old cylinder).
+  const coinGeo = lathe([[0, -0.026], [0.205, -0.026], [0.215, -0.035], [0.262, -0.035], [0.28, -0.022], [0.28, 0.022], [0.262, 0.035], [0.215, 0.035], [0.205, 0.026], [0, 0.026]], 22)
+  const coinMesh = new InstancedMesh(coinGeo, new MeshStandardMaterial({ color: '#ffc21a', metalness: 0.75, roughness: 0.25, emissive: '#6a4200', emissiveIntensity: 0.4 }), COINS)
   coinMesh.instanceMatrix.setUsage(DynamicDrawUsage)
   coinMesh.frustumCulled = false
   for (let i = 0; i < COINS; i++) coinMesh.setMatrixAt(i, ZERO)
+  coinMesh.count = 0
   scene.add(coinMesh)
   const coins = Array.from({ length: COINS }, () => ({ on: false }))
   let grabbed = 0
@@ -265,6 +269,7 @@ export function createTrolls({ scene, crowd, fx, hud, getPlayer, store }) {
     shake(0.25, 0.6)
   }
   let koTimer = null
+  let koCount = 0
   function knockout(player) {
     if (player.frozen || player.auto) return
     player.frozen = true
@@ -273,10 +278,13 @@ export function createTrolls({ scene, crowd, fx, hud, getPlayer, store }) {
     shake(0.3, 0.5)
     document.body.classList.add('troll-ko')
     clearTimeout(koTimer)
-    koTimer = setTimeout(() => {
+    // Boxity's death screen (its countdown) where available; you get up once it allows it.
+    const ko = ++koCount
+    Promise.all([new Promise((r) => (koTimer = setTimeout(r, 2500))), deathScreen()]).then(() => {
+      if (ko !== koCount) return
       player.frozen = false
       document.body.classList.remove('troll-ko')
-    }, 2500)
+    })
   }
   function turbulence() {
     hud.big('TURBULENCE!', 'gold', 1.4)
@@ -396,6 +404,7 @@ export function createTrolls({ scene, crowd, fx, hud, getPlayer, store }) {
         coinMesh.setMatrixAt(i, o3.matrix)
       })
       if (anyCoin || grabbed) coinMesh.instanceMatrix.needsUpdate = true
+      coinMesh.count = anyCoin ? COINS : 0 // idle: draw nothing
       grabT -= dt
       if (grabbed && grabT <= 0) {
         store.addCoins(grabbed, { x: p.x, y: p.y + 1.6, z: p.z })

@@ -7,6 +7,7 @@ import {
   BufferGeometry,
   CanvasTexture,
   Color,
+  CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
   Float32BufferAttribute,
@@ -24,6 +25,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { RAPIER, world } from './physics.js'
 import { sfx } from './audio.js'
 import { paintEmoji } from './airport/paint.js'
+import { rbox } from './detail.js'
 
 const ZERO = new Matrix4().makeScale(0, 0, 0)
 
@@ -31,7 +33,16 @@ export function createPowers({ scene, crowd, fx, hud, getPlayer, camera }) {
   // --- Luggage rain -----------------------------------------------------------------------------
   const RAIN = 32
   const strip = (g) => (g.index ? g.toNonIndexed() : g)
-  const bagGeo = mergeGeometries([new BoxGeometry(0.44, 0.6, 0.26), new BoxGeometry(0.3, 0.05, 0.05).translate(0, 0.42, 0), new BoxGeometry(0.03, 0.12, 0.03).translate(-0.12, 0.36, 0), new BoxGeometry(0.03, 0.12, 0.03).translate(0.12, 0.36, 0)].map(strip))
+  // Hard-shell case: rounded shell, two ribs, seam bead, top handle on posts, four spinner wheels.
+  const bagGeo = mergeGeometries([
+    rbox(0.44, 0.6, 0.26, 0.055, 2),
+    ...[-0.105, 0.105].map((x) => new BoxGeometry(0.05, 0.54, 0.272).translate(x, 0, 0)),
+    new BoxGeometry(0.452, 0.02, 0.262),
+    rbox(0.3, 0.05, 0.055, 0.02, 1).translate(0, 0.42, 0),
+    new BoxGeometry(0.03, 0.12, 0.03).translate(-0.12, 0.36, 0),
+    new BoxGeometry(0.03, 0.12, 0.03).translate(0.12, 0.36, 0),
+    ...[[-0.17, -0.08], [0.17, -0.08], [-0.17, 0.08], [0.17, 0.08]].map(([x, z]) => new CylinderGeometry(0.035, 0.035, 0.03, 8).rotateZ(Math.PI / 2).translate(x, -0.33, z)),
+  ].map(strip))
   const bags = new InstancedMesh(bagGeo, new MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }), RAIN)
   bags.instanceMatrix.setUsage(DynamicDrawUsage)
   bags.castShadow = true
@@ -41,6 +52,7 @@ export function createPowers({ scene, crowd, fx, hud, getPlayer, camera }) {
     bags.setMatrixAt(i, ZERO)
     bags.setColorAt(i, new Color(palette[i % palette.length]))
   }
+  bags.count = 0
   scene.add(bags)
   let rain = [] // { body, delay, t, vy }
 
@@ -205,6 +217,7 @@ export function createPowers({ scene, crowd, fx, hud, getPlayer, camera }) {
         }
       }
       if (rain.length && rain.every((r) => !r)) rain = []
+      bags.count = rain.length ? RAIN : 0 // idle: draw nothing (not 32 zero-sized bags)
       bags.instanceMatrix.needsUpdate = true
 
       // Paper planes loop around the player, bobbing and banking.

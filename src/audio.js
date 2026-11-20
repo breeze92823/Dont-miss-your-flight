@@ -31,7 +31,22 @@ export function setMuted(on) {
   } catch {
     // session only
   }
-  if (A.master) A.master.gain.setTargetAtTime(muted ? 0 : AUDIO.volume, A.ctx.currentTime, 0.05)
+  applyGain()
+}
+// Bloxity's master_volume setting (0..1) and ad breaks (silent while an ad plays).
+let volumeK = 1
+let adMuted = false
+const gainNow = () => (muted || adMuted ? 0 : AUDIO.volume * volumeK)
+function applyGain() {
+  if (A.master) A.master.gain.setTargetAtTime(gainNow(), A.ctx.currentTime, 0.05)
+}
+export function setVolume(k) {
+  volumeK = Math.max(0, Math.min(1, Number(k) || 0))
+  applyGain()
+}
+export function setAdMute(on) {
+  adMuted = !!on
+  applyGain()
 }
 
 function makeNoise(ctx, seconds, kind) {
@@ -79,7 +94,7 @@ export function initAudio() {
   if (!Ctx) return
   const ctx = (A.ctx = new Ctx({ latencyHint: 'interactive' }))
   A.master = ctx.createGain()
-  A.master.gain.value = muted ? 0 : AUDIO.volume
+  A.master.gain.value = gainNow()
   const comp = ctx.createDynamicsCompressor()
   comp.threshold.value = -14
   comp.ratio.value = 4
@@ -414,6 +429,93 @@ const SFX = {
     const d = out(o.vol ?? 0.2, o.pan)
     noise('pink', d, t, 0.09, { f: 900 + Math.random() * 600, q: 0.8, peak: 0.6 })
   },
+  // Cabin PA / seatbelt sign: the classic soft high-low two-tone.
+  bingBong(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.4)
+    bell(d, t, 1318.5, 1.6, 0.22)
+    bell(d, t + 0.42, 1046.5, 2.0, 0.22)
+  },
+  // Boarding pass scanner: a bright double beep + a little click.
+  scanOk(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.3, o.pan)
+    noise('white', d, t, 0.02, { f: 5000, q: 2, peak: 0.4, a: 0.001 })
+    tone(d, t + 0.02, 0.09, { type: 'sine', f: 1975, peak: 0.35, curve: 'hold' })
+    tone(d, t + 0.14, 0.14, { type: 'sine', f: 2637, peak: 0.35, curve: 'hold' })
+  },
+  // Dropping into a padded seat: a soft cushioned thump with a little creak.
+  sit(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.35, o.pan)
+    noise('pink', d, t, 0.22, { type: 'lowpass', f: 600, f2: 200, peak: 0.8, a: 0.01 })
+    tone(d, t, 0.18, { f: 95, f2: 60, peak: 0.45 })
+    tone(d, t + 0.08, 0.12, { type: 'triangle', f: 310, f2: 260, peak: 0.04, vib: 14, vibRate: 30 })
+  },
+  // Jet bridge / gate door: a pneumatic hiss + roll.
+  pneumatic(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.35, o.pan)
+    noise('white', d, t, 0.5, { type: 'highpass', f: 3500, f2: 1800, peak: 0.25, a: 0.02 })
+    noise('pink', d, t + 0.1, 0.9, { type: 'lowpass', f: 300, f2: 900, peak: 0.4, a: 0.2 })
+  },
+  // Landing gear thunk / chocks.
+  gear(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.6, o.pan)
+    tone(d, t, 0.35, { f: 70, f2: 38, peak: 0.9, a: 0.003 })
+    noise('pink', d, t, 0.25, { type: 'lowpass', f: 900, f2: 200, peak: 0.7, a: 0.002 })
+    noise('white', d, t + 0.05, 0.12, { f: 2400, q: 3, peak: 0.12 })
+  },
+  // Take-off roll: a long swelling roar with runway joints thumping under the wheels.
+  rumble(o) {
+    const t = now()
+    const dur = o.dur ?? 7
+    const d = out(o.vol ?? 0.5)
+    noise('brown', d, t, dur, { type: 'lowpass', f: 140, f2: 900, peak: 1, a: dur * 0.55 })
+    noise('pink', d, t + 0.3, dur, { f: 400, f2: 1600, q: 0.8, peak: 0.35, a: dur * 0.6 })
+    tone(d, t, dur, { type: 'sawtooth', f: 48, f2: 110, peak: 0.05, a: dur * 0.5, curve: 'hold' })
+    for (let i = 0; i < 9; i++) noise('pink', d, t + 0.5 + i * (0.7 - i * 0.05), 0.06, { type: 'lowpass', f: 300, peak: 0.6 })
+  },
+  // Touchdown: two tyre chirps and a thump.
+  touchdown(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.5)
+    for (const at of [0, 0.14]) {
+      noise('white', d, t + at, 0.18, { f: 2400, f2: 1400, q: 3, peak: 0.35, a: 0.005 })
+      tone(d, t + at, 0.3, { f: 80, f2: 40, peak: 0.7, a: 0.003 })
+    }
+    noise('brown', d, t + 0.2, 2.2, { type: 'lowpass', f: 500, f2: 120, peak: 0.6, a: 0.05 })
+  },
+  // A city car horn (two detuned squares).
+  carHorn(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.12, o.pan)
+    const f = o.f ?? 415
+    const len = o.dur ?? 0.3
+    tone(d, t, len, { type: 'square', f, peak: 0.08, curve: 'hold' })
+    tone(d, t, len, { type: 'square', f: f * 1.26, peak: 0.07, curve: 'hold' })
+  },
+  // The bartender pours you one: glugs + clinks.
+  pour(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.3, o.pan)
+    for (let i = 0; i < 6; i++) tone(d, t + i * 0.09, 0.08, { f: 300 + i * 70, f2: 500 + i * 70, peak: 0.25, a: 0.01 })
+    bell(d, t + 0.62, 2637, 0.6, 0.08)
+    bell(d, t + 0.7, 3136, 0.5, 0.06)
+  },
+  // Passengers cheering on landing.
+  cheer(o) {
+    const t = now()
+    const d = out(o.vol ?? 0.35)
+    noise('pink', d, t, 2.6, { f: 1300, q: 0.6, peak: 0.6, a: 0.3 })
+    noise('pink', d, t + 0.1, 2.4, { f: 2600, q: 1.2, peak: 0.25, a: 0.25 })
+    for (let i = 0; i < 10; i++) {
+      const f = 500 + Math.random() * 600
+      tone(d, t + Math.random() * 1.6, 0.25, { type: 'triangle', f, f2: f * 1.3, peak: 0.05, a: 0.02 })
+    }
+    for (let i = 0; i < 14; i++) noise('white', d, t + 0.3 + Math.random() * 2, 0.03, { f: 2000, q: 1, peak: 0.3, a: 0.001 }) // claps
+  },
   scanHum(o) {
     const t = now()
     const d = out(o.vol ?? 0.15, o.pan)
@@ -547,6 +649,66 @@ export function jetLoop() {
       g.gain.setTargetAtTime(vol, t, 0.3)
       lp.frequency.setTargetAtTime(200 + bright * 1400, t, 0.3)
       wg.gain.setTargetAtTime(bright * 0.004, t, 0.3)
+    },
+  }
+}
+
+// Turbofan: a low roar + a whistling whine that both follow `rpm`; the gate's jet taxiing in, the
+// engines spooling up for take-off, and the steady cabin drone in flight (lowpassed through the hull).
+export function turbineLoop() {
+  if (!A.ctx) return { set() {}, stop() {} }
+  const ctx = A.ctx
+  const nz = ctx.createBufferSource()
+  nz.buffer = A.noise.brown
+  nz.loop = true
+  const lp = ctx.createBiquadFilter()
+  lp.type = 'lowpass'
+  lp.frequency.value = 300
+  const hiss = ctx.createBufferSource()
+  hiss.buffer = A.noise.pink
+  hiss.loop = true
+  const bp = ctx.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.Q.value = 1.4
+  bp.frequency.value = 1200
+  const hg = ctx.createGain()
+  hg.gain.value = 0.25
+  const whine = ctx.createOscillator()
+  whine.type = 'sine'
+  whine.frequency.value = 900
+  const whine2 = ctx.createOscillator()
+  whine2.type = 'sine'
+  whine2.frequency.value = 1810
+  const wg = ctx.createGain()
+  wg.gain.value = 0
+  const g = ctx.createGain()
+  g.gain.value = 0
+  nz.connect(lp).connect(g)
+  hiss.connect(bp).connect(hg).connect(g)
+  whine.connect(wg)
+  whine2.connect(wg)
+  wg.connect(g)
+  g.connect(A.loops)
+  nz.start()
+  hiss.start(0, Math.random() * 2)
+  whine.start()
+  whine2.start()
+  return {
+    // vol 0..1, rpm 0..1, muffle 0..1 (inside the cabin)
+    set(vol, rpm, muffle = 0) {
+      if (!Number.isFinite(vol) || !Number.isFinite(rpm)) return
+      const t = ctx.currentTime
+      g.gain.setTargetAtTime(vol, t, 0.25)
+      lp.frequency.setTargetAtTime((160 + rpm * 900) * (1 - muffle * 0.55), t, 0.3)
+      bp.frequency.setTargetAtTime(700 + rpm * 1600, t, 0.3)
+      hg.gain.setTargetAtTime((0.12 + rpm * 0.3) * (1 - muffle * 0.8), t, 0.3)
+      whine.frequency.setTargetAtTime(500 + rpm * 2600, t, 0.4)
+      whine2.frequency.setTargetAtTime(1000 + rpm * 5100, t, 0.4)
+      wg.gain.setTargetAtTime((0.004 + rpm * 0.014) * (1 - muffle * 0.85), t, 0.3)
+    },
+    stop() {
+      g.gain.setTargetAtTime(0, ctx.currentTime, 0.4)
+      setTimeout(() => [nz, hiss, whine, whine2].forEach((n) => n.stop()), 2500)
     },
   }
 }
