@@ -193,7 +193,11 @@ export function createHud({ onAction }) {
     // Top-right buttons: the mute, plus the touch day / respawn row beside it on landscape phones
     // (hud.css). The job banner only has the mute beside it (the touch buttons hide on duty).
     const rightCol = innerHeight <= 560 ? 176 : 64
-    const [x, y] = topSpot(areas, Math.max(90, board.offsetWidth / 2 || 125) + 6, bandR, rightCol)
+    // Board The Plane (+ the in-line pill and plane clock under it) stays at the top of the screen:
+    // it keeps clear of the toolbar row only, not the chat feed under it - on portrait phones that
+    // feed would push it a third of the way down, over the player.
+    const toolbarRow = areas.filter((a) => a.top < 40)
+    const [x, y] = topSpot(toolbarRow, Math.max(90, board.offsetWidth / 2 || 125) + 6, bandR, rightCol)
     const [bx, by] = topSpot(areas, Math.max(120, (jobBanner?.offsetWidth || 0) / 2 || 200) + 6, bandR, 64)
     const s = root.style
     s.setProperty('--rz-left', `${left}px`)

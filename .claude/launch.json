@@ -13,6 +13,12 @@
         "development"
       ],
       "port": 5173
+    },
+    {
+      "name": "flight-mobilehud",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set VITE_DEV_MODE=true&& npx vite --port 5437 --strictPort --mode development"],
+      "port": 5437
     }
   ]
 }
