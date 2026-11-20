@@ -64,7 +64,7 @@ export const QUEUE = {
 }
 
 // --- Economy: coins only (never premium currency) ------------------------------
-export const START_COINS = 205
+export const START_COINS = 0
 export const PRICES = {
   skipLine: 1200,
   boardPlane: 3000, // fast-track: skip the line and the desk
