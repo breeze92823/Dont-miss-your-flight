@@ -356,7 +356,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       }
 
       // --- Real passengers take their places in the line ---
-      if (remote) syncRemoteLine(line, remote.lineMembers('checkin'), project)
+      if (remote) syncRemoteLine(line, remote.lineMembers('checkin'), project, TOTAL)
 
       // --- Line shuffles forward ---
       // (never closer than `spacing` to the one ahead, and nobody walks into the player)

@@ -749,7 +749,7 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
         }
       }
       // Real passengers take their places in the line.
-      if (remote) syncRemoteLine(line, remote.lineMembers('boarding'), LINE.project)
+      if (remote) syncRemoteLine(line, remote.lineMembers('boarding'), LINE.project, LINE.total)
       // Line shuffles forward (never closer than `spacing` to the one ahead, and nobody walks into the player).
       const playerS = LINE.project(player.position.x, player.position.z)
       for (let i = 0; i < line.length; i++) {

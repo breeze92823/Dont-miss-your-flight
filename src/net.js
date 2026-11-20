@@ -159,6 +159,7 @@ export const setPresenceSource = (fn) => (presenceSource = fn)
 const sentPresence = { pose: '', trip: '', avatar: null, emote: '' }
 let poseIn = 0
 let tripIn = 0
+let aliveIn = 0
 const round = (v, k = 100) => Math.round(v * k) / k
 function currentPresence() {
   try {
@@ -170,9 +171,16 @@ function currentPresence() {
     return null
   }
 }
-// Every frame: sends what changed, throttled.
+// Every frame: sends what changed, throttled. Plus the `alive` beat: it only goes out while the game
+// loop runs, so a hidden tab / stopped game turns `away` on the server and the others stop waiting
+// behind this player in a line.
 export function sendPresence(dt) {
   if (!net.connected) return
+  aliveIn -= dt
+  if (aliveIn <= 0) {
+    aliveIn = REMOTE.aliveEvery
+    send('alive', {})
+  }
   poseIn -= dt
   tripIn -= dt
   if (poseIn > 0 && tripIn > 0) return
@@ -324,7 +332,11 @@ async function connect() {
 
 export function initNet() {
   window.addEventListener('pagehide', saveNow)
-  document.addEventListener('visibilitychange', () => document.hidden && saveNow())
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) saveNow()
+    // Tell the others at once (the missing beats would take a few seconds).
+    if (net.connected) send(document.hidden ? 'away' : 'alive', document.hidden ? { on: true } : {})
+  })
   setInterval(() => dirty && saveNow(), NET.saveEvery * 1000)
   if (!hasServer()) return console.info('[net] no server configured; progress is kept in this browser')
   subscribeAuth((s) => {

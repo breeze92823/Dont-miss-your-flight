@@ -214,7 +214,7 @@ export function createDialog(root, { sfx, typeSpeed = 40, hold = 0.9 }) {
             }
             const id = `${r}${c}`
             const free = !taken.has(id)
-            const s = el('button', `seat ${free ? '' : 'taken'} ${c === 'A' || c === 'F' ? 'win' : ''} ${r <= 3 ? 'front' : ''}`, '', row)
+            const s = el('button', `seat ${free ? '' : 'taken'} ${c === 'A' || c === 'F' ? 'window' : ''} ${r <= 3 ? 'front' : ''}`, '', row)
             if (free)
               tap(s, () => {
                 sfx('select')

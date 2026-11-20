@@ -482,7 +482,7 @@ body.dialog-open .hud .hud-bottom {
 .seat.front {
   background: linear-gradient(#c79bff, #7a3fe0) !important;
 }
-.seat.win {
+.seat.window {
   box-shadow: 0 0 0 2px var(--ink), 0 0 0.5em #9fe8ff, inset 0 -0.2em 0 rgba(0, 0, 0, 0.2);
 }
 .seat.taken {
@@ -764,6 +764,61 @@ body.dialog-open .hud .hud-bottom {
   opacity: 0;
 }
 
+/* Landscape phones: the agent panel is compact and its answers sit side by side, so the scene
+   above stays visible and it clears the top buttons. */
+@media (max-height: 560px) {
+  .ap-wrap {
+    width: min(86vw, 680px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);
+    font-size: 0.72rem;
+  }
+  .ap {
+    min-height: 0;
+    padding: 0.45em 0.8em;
+  }
+  .ap-avatar {
+    width: 2.6em;
+    height: 2.6em;
+    font-size: 1.1em;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ink);
+  }
+  .ap-text {
+    font-size: 1.25em;
+  }
+  .ap-opts {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5em;
+  }
+  .asking .ap-opts {
+    padding: 0 0.8em 0.7em;
+  }
+  .ap-opt {
+    flex: 1 1 0;
+    min-width: 28%;
+    min-height: 44px;
+    padding: 0.25em 0.6em 0.25em 2.3em;
+    font-size: 1.05em;
+  }
+  .ap-skip {
+    font-size: clamp(1rem, 3vmin + 0.4rem, 1.6rem);
+  }
+  .ap-count {
+    font-size: 0.8rem;
+  }
+}
+/* Phones (portrait): the full-screen pickers start under the mute button / platform toolbar. */
+@media (max-width: 700px) and (min-height: 561px) {
+  .dest-back,
+  .bp-back {
+    box-sizing: border-box;
+    padding: calc(max(env(safe-area-inset-top, 0px), var(--rz-right, 0px)) + 64px) 0 calc(env(safe-area-inset-bottom, 0px) + 10px);
+  }
+  .dest,
+  .seats {
+    max-height: 100%;
+  }
+}
 @media (max-width: 560px) {
   .ap-opt {
     padding: 0.3em 2.4em;

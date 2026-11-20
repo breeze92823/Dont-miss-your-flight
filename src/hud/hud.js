@@ -11,6 +11,7 @@ import { ICON } from './icons.js'
 import { createDialog } from './dialog.js'
 import { createWindows } from './windows.js'
 import { onNetChange } from '../net.js'
+import { onReservedAreas } from '../bloxity.js'
 import { Vector3 } from 'three'
 
 function el(tag, cls, html = '', parent = null) {
@@ -64,10 +65,30 @@ export function createHud({ onAction }) {
   tile('t-dest', ICON.globe, 'Destinations', () => openDestinations())
   const dot = el('span', 'notif', '!', rewardsBtn)
 
+  // Be Security / Be Pilot + the six powers. On big screens the tray is `display: contents` and
+  // they sit where they always did; on phones (hud.css compact query) it folds into one Powers
+  // button that opens a panel, so the middle of the screen stays clear.
+  const tray = el('div', 'hud-tray', '', play)
+  const trayBtn = el('button', 'tray-btn', `<span class="ico">${ICON.bolt}</span><span class="lbl">Powers</span>`, play)
+  const setTray = (on) => root.classList.toggle('tray-open', on)
+  tap(trayBtn, () => {
+    sfx('pop')
+    setTray(!root.classList.contains('tray-open'))
+  })
+  // Any touch outside the open tray closes it (capture, so the look / joystick zones still work).
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (root.classList.contains('tray-open') && !tray.contains(e.target) && !trayBtn.contains(e.target)) setTray(false)
+    },
+    { capture: true },
+  )
+
   const role = (cls, icon, label, key, price) => {
-    const b = el('button', `role ${cls}`, `<span class="burst"></span><span class="ico">${icon}</span><span class="lbl">${label}</span><span class="sub"></span>`, play)
+    const b = el('button', `role ${cls}`, `<span class="burst"></span><span class="ico">${icon}</span><span class="lbl">${label}</span><span class="sub"></span>`, tray)
     tap(b, () => {
       sfx('pop')
+      setTray(false)
       onAction('job', key) // jobs.js: pay + enter the mode (or leave it)
     })
     return b
@@ -75,10 +96,13 @@ export function createHud({ onAction }) {
   const roleSec = role('r-sec', ICON.police, 'Be Security', 'security', PRICES.beSecurity)
   const rolePil = role('r-pil', ICON.pilot, 'Be Pilot', 'pilot', PRICES.bePilot)
 
-  const right = el('div', 'hud-right', '', play)
+  const right = el('div', 'hud-right', '', tray)
   const power = (cls, icon, label, key, price, custom) => {
     const b = el('button', `power ${cls}`, `<span class="ico">${icon}</span><span class="lbl">${label}</span>${coinTag(price)}`, right)
-    tap(b, () => (custom ? custom() : confirmBuy(label, price, () => onAction(key))))
+    tap(b, () => {
+      setTray(false)
+      custom ? custom() : confirmBuy(label, price, () => onAction(key))
+    })
   }
   power('p-rain', ICON.luggage, 'Luggage Rain', 'luggageRain', PRICES.luggageRain)
   power('p-kill', ICON.devil, 'Kill All', 'killAll', PRICES.killAll)
@@ -125,6 +149,67 @@ export function createHud({ onAction }) {
     mute.innerHTML = isMuted() ? ICON.mute : ICON.sound
     sfx('click')
   })
+
+  // --- Platform reserved areas -------------------------------------------------------------
+  // Boxity draws its toolbar (top-left; the whole width on narrow phones) and the chat feed under
+  // it over the game. These CSS variables keep the HUD out of them (hud.css):
+  //   --rz-left / --rz-right  how far down the reserved areas reach at the left / right edge
+  //   --top-x / --top-y       where Board The Plane sits: beside the toolbar when it fits, else under
+  //                           the toolbar (and the chat feed, when that is under it too)
+  //   --band-x / --band-y     the same for the job banner (jobs.css), which is wider
+  // The lowest top for something centred on x, half as wide as `half` and `h` tall.
+  function clearTop(areas, x, half, h) {
+    let y = 0
+    for (const a of [...areas].sort((p, q) => p.top - q.top)) {
+      const hits = a.left < x + half && a.left + a.width > x - half && a.top < y + h
+      if (hits) y = Math.max(y, a.top + a.height)
+    }
+    return y
+  }
+  // Centre x + top for a top-centre element `half` wide: beside the toolbar if it fits there
+  // (clear of the right-hand button column), else centred and pushed down under what it hits.
+  function topSpot(areas, half, bandR, rightCol) {
+    const w = innerWidth
+    let x = Math.max(w / 2, bandR + 8 + half)
+    if (x + half > w - rightCol) x = w / 2
+    return [x, clearTop(areas, x, half, 60)]
+  }
+  let jobBanner = null
+  const bannerSize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => layoutReserved(lastAreas)) : null
+  function layoutReserved(areas) {
+    const w = innerWidth
+    let left = 0
+    let right = 0
+    let bandR = 0
+    for (const a of areas) {
+      const r = a.left + a.width
+      const b = a.top + a.height
+      if (a.left < 120) left = Math.max(left, b)
+      if (r > w - 64) right = Math.max(right, b) // reaches the right-hand button column
+      if (a.top < 40) bandR = Math.max(bandR, r)
+    }
+    // The job banner (jobs.js) is made after the HUD; watch its size once it exists.
+    if (!jobBanner && (jobBanner = root.querySelector('.job-hud'))) bannerSize?.observe(jobBanner)
+    // Top-right buttons: the mute, plus the touch day / respawn row beside it on landscape phones
+    // (hud.css). The job banner only has the mute beside it (the touch buttons hide on duty).
+    const rightCol = innerHeight <= 560 ? 176 : 64
+    const [x, y] = topSpot(areas, Math.max(90, board.offsetWidth / 2 || 125) + 6, bandR, rightCol)
+    const [bx, by] = topSpot(areas, Math.max(120, (jobBanner?.offsetWidth || 0) / 2 || 200) + 6, bandR, 64)
+    const s = root.style
+    s.setProperty('--rz-left', `${left}px`)
+    s.setProperty('--rz-right', `${right}px`)
+    s.setProperty('--top-x', `${x}px`)
+    s.setProperty('--top-y', `${y}px`)
+    s.setProperty('--band-x', `${bx}px`)
+    s.setProperty('--band-y', `${by}px`)
+    document.body.style.setProperty('--rz-right', `${right}px`)
+  }
+  let lastAreas = []
+  onReservedAreas((areas) => layoutReserved((lastAreas = areas)))
+  // Board's width changes with the font / its price, so lay out again once things settle.
+  addEventListener('resize', () => requestAnimationFrame(() => layoutReserved(lastAreas)))
+  document.fonts?.ready.then(() => layoutReserved(lastAreas))
+  setTimeout(() => layoutReserved(lastAreas), 1000)
 
   // --- Coins ------------------------------------------------------------------------------
   let shown = store.coins

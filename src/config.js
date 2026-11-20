@@ -58,6 +58,12 @@ export const QUEUE = {
   serveTime: [5.5, 8.5], // s an NPC spends at a desk
   lineSpeed: 2.4, // m/s people shuffle forward
   block: { radius: 0.38, height: 1.7 }, // solid capsule around every NPC in a line, so the player can't cut through it
+  // A real passenger in a line who stopped moving with free room ahead of them (`room` m past the spot
+  // they could step up to) for `after` s is stalled: this client drops them from its copy of the line
+  // (they stop counting and stop being solid) until they move `moved` m. Away passengers (tab hidden,
+  // game stopped, dropped connection: the server's `away` flag) are dropped at once. The line's guard
+  // walks over so everyone sees security keep the line clear.
+  stall: { after: 6, moved: 0.3, room: 1.2 },
   autoSpeed: 5.5, // m/s the player is walked to their spot
   securityDoor: { x: 29.2, z: -33 },
   reward: 30, // coins for checking in
@@ -299,6 +305,7 @@ export const GUARDS = {
     warn2: ['LAST WARNING! Out of the line, now!', 'I will not ask again. MOVE!', 'Final warning! Step out of the line!'],
     removed: ["That's it. You're out!", 'Out of the line you go!', 'Rules are rules. Out!'],
     thanks: ['Thank you.', 'Much better.', 'Appreciated. Join at the back!'],
+    clearLine: ['This one is away. Line, keep moving!', 'Go around, folks. Keep it moving!', 'Line stays clear. Move up, please!'],
     toast1: 'Security: you are blocking the line! Step out or join at the back. (Warning 1 of 2)',
     toast2: 'LAST WARNING! Leave the line now or security removes you. (Warning 2 of 2)',
     removedToast: 'Security removed you from the line. Join at the back like everyone else.',
@@ -770,6 +777,7 @@ export const REMOTE = {
   drawDist: 70, // m: passengers further away are hidden
   maxDrawn: 24, // full avatars drawn at once (the nearest)
   tagDist: 26, // m: name tags shown this close
+  aliveEvery: 1, // s between `alive` beats from the game loop (no beat for 5 s = away for the others)
 }
 // --- Bloxity ads (bloxity.js): rewarded ad for coins (verified by the backend), the results screen
 // ad shown on landing. Coins per ad = the backend's AD_REWARD_COINS.

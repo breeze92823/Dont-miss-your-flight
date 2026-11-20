@@ -38,6 +38,18 @@
 .in-line .job-panel {
   display: none;
 }
+/* The bottom action (Skip Time / Fly Again) is in the same spot: the hotbar steps up over it, and
+   the in-line status ("You're next!") goes above the hotbar. */
+.has-act .hotbar {
+  bottom: calc(var(--safe-b) + clamp(96px, 16vmin, 170px));
+}
+.has-tools.has-act .prompt,
+.has-tools.has-act .status {
+  bottom: calc(var(--safe-b) + clamp(96px, 16vmin, 170px) + var(--hot-h));
+}
+.hud.has-tools.in-line .status {
+  bottom: calc(var(--safe-b) + clamp(84px, 13vmin, 120px) + var(--hot-h));
+}
 .hotbar .slot {
   position: relative;
   width: clamp(48px, 7vmin, 66px);
@@ -245,5 +257,61 @@
   .tool-use {
     right: calc(var(--safe-r) + 12px);
     bottom: calc(var(--safe-b) + 190px);
+  }
+}
+
+/* Portrait phones with touch controls: the joystick + jump cluster own the bottom ~152px, so the
+   hotbar sits just above them on the left and the USE button above the jump cluster on the right.
+   Prompts / Skip Line stay above the hotbar even on short screens (max()). */
+@media (max-width: 700px) and (min-height: 561px) {
+  body.touch-ui .hud .hotbar,
+  body.touch-ui .hud.in-line .hotbar,
+  body.touch-ui .hud.has-act .hotbar {
+    left: calc(var(--safe-l) + 8px);
+    transform: none;
+    bottom: calc(var(--safe-b) + 156px);
+  }
+  body.touch-ui .hud .tool-use {
+    right: calc(var(--safe-r) + 12px);
+    bottom: calc(var(--safe-b) + 156px);
+  }
+  body.touch-ui .hud.has-tools .prompt,
+  body.touch-ui .hud.has-tools .status {
+    bottom: calc(var(--safe-b) + max(32%, 156px + var(--hot-h)));
+  }
+  body.touch-ui .hud.has-tools.has-act .prompt,
+  body.touch-ui .hud.has-tools.has-act .status {
+    bottom: calc(var(--safe-b) + max(33%, 228px) + clamp(84px, 14vmin, 120px));
+  }
+  body.touch-ui .hud.has-tools .job-panel {
+    bottom: calc(var(--safe-b) + 156px + var(--hot-h));
+  }
+}
+/* Landscape phones with touch controls: one bottom row, left to right - joystick, hotbar, Skip Line /
+   Skip Time (hud.css moves it right), jump cluster - so nothing stacks up over the player. Prompts
+   and status sit just above that row; USE goes between the jump cluster's CAM and RUN buttons. */
+@media (max-height: 560px) {
+  body.touch-ui .hud .hotbar,
+  body.touch-ui .hud.in-line .hotbar,
+  body.touch-ui .hud.has-act .hotbar {
+    left: calc(var(--safe-l) + 140px);
+    transform: none;
+    bottom: calc(var(--safe-b) + 8px);
+  }
+  body.touch-ui .hud .prompt,
+  body.touch-ui .hud .status,
+  body.touch-ui .hud.in-line .status,
+  body.touch-ui .hud.has-act .prompt,
+  body.touch-ui .hud.has-act .status,
+  body.touch-ui .hud.has-tools .prompt,
+  body.touch-ui .hud.has-tools .status,
+  body.touch-ui .hud.has-tools.in-line .status,
+  body.touch-ui .hud.has-tools.has-act .prompt,
+  body.touch-ui .hud.has-tools.has-act .status {
+    bottom: calc(var(--safe-b) + 80px);
+  }
+  body.touch-ui .hud .tool-use {
+    right: calc(var(--safe-r) + 90px);
+    bottom: calc(var(--safe-b) + 100px);
   }
 }
