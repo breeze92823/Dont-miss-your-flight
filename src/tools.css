@@ -275,13 +275,15 @@
     right: calc(var(--safe-r) + 12px);
     bottom: calc(var(--safe-b) + 156px);
   }
+  /* --act-y (hud.css) is the spot just above the hotbar here. */
   body.touch-ui .hud.has-tools .prompt,
   body.touch-ui .hud.has-tools .status {
-    bottom: calc(var(--safe-b) + max(32%, 156px + var(--hot-h)));
+    bottom: var(--act-y);
   }
   body.touch-ui .hud.has-tools.has-act .prompt,
-  body.touch-ui .hud.has-tools.has-act .status {
-    bottom: calc(var(--safe-b) + max(33%, 228px) + clamp(84px, 14vmin, 120px));
+  body.touch-ui .hud.has-tools.has-act .status,
+  body.touch-ui .hud.has-tools.in-line .status {
+    bottom: calc(var(--act-y) + 70px);
   }
   body.touch-ui .hud.has-tools .job-panel {
     bottom: calc(var(--safe-b) + 156px + var(--hot-h));

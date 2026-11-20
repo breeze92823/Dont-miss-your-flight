@@ -497,6 +497,7 @@ export function createHud({ onAction }) {
     // "PLANE ARRIVING IN" + a big countdown under Board The Plane (null hides it).
     planeTimer(time, label = 'PLANE ARRIVING IN') {
       planeTimer.classList.toggle('show', time != null)
+      root.classList.toggle('has-timer', time != null)
       if (time == null) return
       planeTimer.firstChild.textContent = label
       planeTimer.lastChild.textContent = time
