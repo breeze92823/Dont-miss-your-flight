@@ -1,0 +1,204 @@
+/* Job modes (jobs.js): while Be Security / Be Pilot runs, the gameplay HUD steps aside and the mode
+   gets its own layout: a banner at the top centre (title, live info, Exit) and a column of actions at
+   the bottom right. Coins (bottom left / touch: left column), toasts and big text stay. */
+.hud.job-mode .hud-right,
+.hud.job-mode .role,
+.hud.job-mode .hud-top,
+.hud.job-mode .hud-bottom,
+.hud.job-mode .hud-act,
+.hud.job-mode .hotbar,
+.hud.job-mode .tool-use,
+.hud.job-mode .tool-cross,
+.hud.job-mode .job-panel,
+.hud.job-mode .prompt,
+.hud.job-mode .status,
+.hud.job-mode .nowboarding,
+.hud.job-mode .pass,
+.hud.job-mode .vip-tag {
+  display: none !important;
+}
+/* Touch: you can't walk or jump on duty; the joystick stays for flying the jet. */
+body.job-mode .touch-cluster,
+body.job-mode .touch-top,
+body.job-security .joy-base {
+  display: none !important;
+}
+
+/* Touch: the coin counter would sit on the joystick; on duty it goes just above it (the action
+   column owns the bottom right). */
+body.touch-ui .hud.job-mode .hud-coins {
+  top: auto;
+  left: calc(var(--safe-l) + 12px);
+  /* the joystick's size + padding (touch.css --size / --pad) + a gap */
+  bottom: calc(var(--safe-b) + clamp(104px, 28vmin, 150px) + clamp(12px, 3vmin, 24px) + 16px);
+}
+body.touch-ui.job-security .hud.job-mode .hud-coins {
+  bottom: calc(var(--safe-b) + 14px);
+}
+
+.job-hud {
+  position: absolute;
+  top: calc(var(--safe-t) + clamp(8px, 1.6vmin, 18px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 0.6em;
+  max-width: min(94vw, 560px);
+  padding: 0.35em 0.4em 0.35em 0.5em;
+  border-radius: 0.8em;
+  background: rgba(10, 16, 32, 0.72);
+  box-shadow: 0 0 0 3px var(--ink), 0 0.3em 0.8em rgba(0, 0, 0, 0.3);
+  font-size: clamp(0.8rem, 1.3vmin + 0.4rem, 1.15rem);
+  pointer-events: auto;
+}
+.job-hud.show {
+  display: flex;
+}
+.job-hud .jh-ico {
+  display: block;
+  flex: none;
+  width: 2.4em;
+  height: 2.4em;
+  padding: 0.2em;
+  border-radius: 50%;
+  background: radial-gradient(circle, #eaf4ff 55%, #9fd0ff);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.job-hud.pilot .jh-ico {
+  background: radial-gradient(circle, #fff6d6 55%, #ffd84a);
+}
+.job-hud .jh-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.job-hud .jh-title {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: #9fd0ff;
+}
+.job-hud.pilot .jh-title {
+  color: #ffd84a;
+}
+.job-hud .jh-info {
+  font-size: 0.78em;
+  font-weight: 600;
+  color: #e6eefc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-hud .jh-info:empty {
+  display: none;
+}
+.hud .jh-exit {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  min-height: 44px;
+  min-width: 44px;
+  margin-left: 0.3em;
+  padding: 0 0.8em 0 0.5em;
+  border-radius: 0.55em;
+  font-weight: 700;
+  font-size: 1em;
+  background: linear-gradient(#ff7a6b, #e0322a);
+  box-shadow: 0 0 0 3px var(--ink), inset 0 -0.22em 0 rgba(0, 0, 0, 0.22);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.18em var(--ink);
+}
+.hud .jh-exit svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+.hud .jh-exit:active {
+  transform: scale(0.94);
+}
+
+.job-actions {
+  position: absolute;
+  right: calc(var(--safe-r) + clamp(10px, 2vmin, 24px));
+  bottom: calc(var(--safe-b) + clamp(12px, 3vmin, 32px));
+  display: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: clamp(8px, 1.4vmin, 14px);
+  width: clamp(132px, 18vmin, 200px);
+}
+.job-actions.show {
+  display: flex;
+}
+.hud .ja-btn {
+  position: relative;
+  min-height: clamp(46px, 7vmin, 64px);
+  padding: 0 0.8em;
+  border-radius: 0.6em;
+  font-weight: 700;
+  font-size: clamp(0.95rem, 1.5vmin + 0.45rem, 1.35rem);
+  background: linear-gradient(#7cc6ff, #2f7fe0);
+  box-shadow: 0 0 0 3px var(--ink), inset 0 -0.25em 0 rgba(0, 0, 0, 0.2);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.18em var(--ink);
+  transition: transform 0.1s, filter 0.15s;
+}
+.hud .ja-btn:active {
+  transform: scale(0.95);
+}
+.hud .ja-btn.b-go {
+  background: linear-gradient(#8ef56a, #38b52e);
+}
+.hud .ja-btn.b-time {
+  background: linear-gradient(#c9a3ff, #7f4fe0);
+}
+.job-actions.pilot .ja-btn {
+  background: linear-gradient(#ffd66b, #ff9a1a);
+}
+.hud .ja-btn.b-fly {
+  min-height: clamp(54px, 8.5vmin, 76px);
+  background: linear-gradient(#8ef56a, #38b52e);
+}
+.hud .ja-btn.b-fly.land {
+  background: linear-gradient(#7cc6ff, #2f7fe0);
+}
+.hud .ja-btn.cool {
+  filter: grayscale(0.8) brightness(0.8);
+}
+.ja-btn i {
+  position: absolute;
+  right: -6px;
+  top: -8px;
+  font-style: normal;
+  font-size: 0.7em;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #182544;
+  -webkit-text-stroke: 0;
+}
+.ja-btn i:empty {
+  display: none;
+}
+
+/* Small screens: the banner sits under the platform toolbar (top-left) and the actions shrink. */
+@media (max-width: 600px) {
+  .job-hud {
+    top: calc(var(--safe-t) + 58px);
+  }
+  .job-hud .jh-title {
+    letter-spacing: 0.02em;
+  }
+}
+@media (max-height: 560px) {
+  .job-actions {
+    gap: 6px;
+    width: clamp(118px, 22vmin, 160px);
+  }
+  .hud .ja-btn,
+  .hud .ja-btn.b-fly {
+    min-height: 44px;
+    font-size: 0.95rem;
+  }
+}

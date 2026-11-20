@@ -31,6 +31,7 @@ import { store } from './store.js'
 import { createTrolls } from './trolls.js'
 import { createGuards } from './guards.js'
 import { createTools } from './tools.js'
+import { createJobs } from './jobs.js'
 import { claimAdReward, initNet, net, onTrolled, sendEmote, sendPresence, setPresenceSource } from './net.js'
 import { createRemotePassengers } from './remote.js'
 import { createEmotePlayer } from './emotes.js'
@@ -160,8 +161,10 @@ powers = createPowers({ scene, crowd, fx, hud, camera, getPlayer: () => player.r
 const trolls = createTrolls({ scene, crowd, fx, hud, store, getPlayer: () => player.renderPosition })
 const isPlaying = () => blend >= 0 && !document.body.classList.contains('cutscene')
 const tools = createTools({ scene, camera, canvas: renderer.domElement, crowd, fx, hud, powers, trolls, queue, security, player, getName: playerName, onHat: () => applyHat(), isPlaying })
+// Be Security / Be Pilot modes: paid on every entry, Exit puts you back where you were.
+const jobs = createJobs({ scene, crowd, fx, hud, trolls, tools, queue, security, boarding, flight, player, teleport: placePlayer, onHat: () => applyHat(), isPlaying })
 // Checkpoint guards + laser barriers: no security before check-in, no lanes before your turn, no gates before security.
-const guards = createGuards({ scene, crowd, fx, hud, store, queue, security, boarding, flight, trolls, isPlaying })
+const guards = createGuards({ scene, crowd, fx, hud, store, queue, security, boarding, flight, trolls, isPlaying, remote })
 const lineBlockers = createLineBlockers() // people in lines are solid: no walking through to cut ahead
 const lineSources = [queue, security, boarding]
 onTrolled(tools.receive)
@@ -224,6 +227,9 @@ function onAction(name, arg) {
       return
     case 'emoji':
       powers.emoji(arg)
+      return
+    case 'job':
+      jobs.request(arg)
       return
     case 'hat':
       applyHat()
@@ -411,6 +417,12 @@ player.frozen = !!cutscene
 let blend = cutscene ? -1 : 1 // -1 = cutscene running, 0..1 = blending into the chase cam
 const blendFrom = { pos: new Vector3(), quat: new Quaternion(), fov: CAMERA.fov }
 
+// Puts the player body somewhere (jobs.js: to the security desk and back) and turns the camera with it.
+function placePlayer(spot, facing) {
+  resetPlayer(spot, facing)
+  syncYawToPlayer()
+}
+
 function startGameplay() {
   resetPlayer(SPAWN, SPAWN_FACING)
   syncYawToPlayer()
@@ -487,7 +499,7 @@ function tick(dt, draw = true) {
     animIn.overlayWeight = a.overlayWeight
   } else {
     const p = player.renderPosition
-    playerGroup.visible = !firstPerson
+    playerGroup.visible = !firstPerson && !jobs.hidesPlayer() // hidden in the cockpit (Be Pilot)
     playerGroup.position.set(p.x, p.y, p.z)
     playerGroup.rotation.set(0, player.facing, 0)
     owner.speed = Math.hypot(player.velocity.x, player.velocity.z)
@@ -545,8 +557,9 @@ function tick(dt, draw = true) {
   if (blend >= 0) {
     queue.update(dt, t)
     powers.update(dt, t)
+    jobs.update(dt) // Be Security / Be Pilot (before the camera: the jet moves; before tools: they may pin passengers)
     // Camera: a gate / flight cutscene drives it; otherwise the chase cam, blended in after a cutscene.
-    const directed = boarding.camera(camera) || flight.camera(camera)
+    const directed = jobs.camera(camera) || boarding.camera(camera) || flight.camera(camera)
     if (directed) {
       wasDirected = true
       updateCamera(chaseCam, dt)
@@ -611,7 +624,7 @@ function tick(dt, draw = true) {
   fx.update(dt)
 
   // Shadows follow what the camera is looking at (the player in gameplay).
-  if (blend >= 0) focus.copy(playerGroup.position)
+  if (blend >= 0) focus.copy(jobs.focus() ?? playerGroup.position)
   else camera.getWorldDirection(focus).multiplyScalar(14).add(camera.position)
   lighting.update(dt, focus)
   trolls.late(camera, dt) // camera shake
@@ -638,5 +651,5 @@ if (import.meta.env.DEV) {
     for (let k = 0; k < seconds / step - 1; k++) tick(step, false)
     tick(step, true)
   }
-  window.__game = { advance, remote, player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport, queue, security, crowd, store, hud, powers, tools, trolls, net, boarding, flight, gates, cabin, city, guards, get cutscene() { return cutscene } }
+  window.__game = { advance, remote, player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport, queue, security, crowd, store, hud, powers, tools, jobs, trolls, net, boarding, flight, gates, cabin, city, guards, get cutscene() { return cutscene } }
 }

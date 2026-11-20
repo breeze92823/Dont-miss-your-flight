@@ -2,8 +2,7 @@
 //   - hotbar (bottom centre, keys 1-5): Air Horn, Handcuffs, Gravity Gun, Ban Hammer (passes) and
 //     the Grapple Hook (Daily Reward, timed). Pick one, then click (or tap USE / press F) on whoever
 //     is under the crosshair (the cursor when it is free).
-//   - job panel above it while you wear a job hat: Security (Search / Add Time / Let Go on the
-//     person you aim at) or Pilot (Takeoff / Turbulence / Announce, which land on everyone).
+//   - (the Be Security / Be Pilot modes live in jobs.js; their relays arrive in receive() here)
 //   - VIP: the gold tag (HUD + over your head), 2x coins (store.addCoins) and priority boarding:
 //     joining a line puts you straight at the front.
 //   - trolls: running one you bought (and relaying it, net.js) or one someone else bought.
@@ -47,11 +46,10 @@ function tap(e, fn) {
 export function createTools({ scene, camera, canvas, crowd, fx, hud, powers, trolls, queue, security, player, getName, onHat, isPlaying }) {
   const play = hud.root.querySelector('.play') ?? hud.root
 
-  // --- DOM: hotbar, crosshair, USE button, job panel, VIP tag -----------------------------------------
+  // --- DOM: hotbar, crosshair, USE button, VIP tag -----------------------------------------
   const bar = el('div', 'hotbar', '', play)
   const cross = el('div', 'tool-cross', '', hud.root)
   const useBtn = el('button', 'tool-use', 'USE', play)
-  const jobPanel = el('div', 'job-panel', '', play)
   const vipTag = el('span', 'vip-tag', '★ VIP', hud.root.querySelector('.hud-coins') ?? play)
   let held = null // selected tool id
   let slots = []
@@ -235,97 +233,6 @@ export function createTools({ scene, camera, canvas, crowd, fx, hud, powers, tro
   }
   tap(useBtn, () => use(false))
 
-  // --- Jobs ---------------------------------------------------------------------------------------------------
-  const jobCd = { search: 0, takeoff: 0, turbulence: 0 }
-  let jobKey = ''
-  function jobButton(label, cls, fn) {
-    const b = el('button', `job-btn ${cls}`, `<span>${label}</span><i></i>`, jobPanel)
-    tap(b, () => isPlaying() && fn())
-    return b
-  }
-  function refreshJob() {
-    const hat = store.data.hat
-    const key = `${hat}`
-    if (key !== jobKey) {
-      jobKey = key
-      jobPanel.innerHTML = ''
-      jobPanel.className = `job-panel ${hat ? `show ${hat}` : ''}`
-      hud.root.classList.toggle('has-job', !!hat)
-      if (hat === 'security') {
-        el('div', 'job-title', 'SECURITY', jobPanel)
-        jobButton('Search', 'b-search', jobSearch).dataset.cd = 'search'
-        jobButton('Add Time', 'b-time', jobHold)
-        jobButton('Let Go', 'b-go', jobLetGo)
-      } else if (hat === 'pilot') {
-        el('div', 'job-title', 'PILOT', jobPanel)
-        jobButton('Takeoff', 'b-takeoff', jobTakeoff).dataset.cd = 'takeoff'
-        jobButton('Turbulence', 'b-turb', jobTurbulence).dataset.cd = 'turbulence'
-        jobButton('Announce', 'b-ann', () => hud.openAnnounce?.({ pilot: true }))
-      }
-      el('div', 'job-time', '', jobPanel)
-    }
-    const shift = hat && !store.ownsForGood(hat) ? store.timeLeft(hat) : 0
-    const tEl = jobPanel.querySelector('.job-time')
-    if (tEl) tEl.textContent = shift ? `Shift ends in ${clock(shift)}` : ''
-    for (const b of jobPanel.querySelectorAll('[data-cd]')) {
-      const c = jobCd[b.dataset.cd]
-      b.classList.toggle('cool', c > 0)
-      b.querySelector('i').textContent = c > 0 ? Math.ceil(c) : ''
-    }
-  }
-  const aimed = () => {
-    const n = pick(aimPoint(true))
-    if (!n) {
-      sfx('error')
-      hud.toast('Aim at a passenger first!')
-    }
-    return n
-  }
-  function jobSearch() {
-    if (jobCd.search > 0) return
-    const n = aimed()
-    if (!n) return
-    jobCd.search = JOBS.searchTime
-    pin(n, { kind: 'job', mode: 'tpose', t: JOBS.searchTime, search: true })
-    crowd.say(n, ['why me??', 'random check again?!', 'it tickles lol'][Math.floor(Math.random() * 3)], 2)
-    hud.prompt('Searching...')
-    sfx('pat', { vol: 0.2 })
-  }
-  function jobHold() {
-    const n = aimed()
-    if (!n) return
-    const pn = pins.get(n)
-    if (pn?.kind === 'job') pn.t += JOBS.holdTime
-    else pin(n, { kind: 'job', mode: 'idle', t: JOBS.holdTime })
-    sfx('stamp')
-    crowd.say(n, ['but my gate is closing!!', 'how much longer?', 'ugh, fine.'][Math.floor(Math.random() * 3)], 2)
-    hud.toast(`+${JOBS.holdTime}s: ${n.name ?? 'they'} must wait.`)
-  }
-  function jobLetGo() {
-    let k = 0
-    for (const [n, pn] of pins) {
-      if (pn.kind !== 'job') continue
-      release(n)
-      crowd.say(n, ['finally!', 'thank you officer!', 'bye!!'][k % 3], 1.6)
-      k++
-    }
-    sfx(k ? 'clearBeep' : 'error', { vol: 0.3 })
-    hud.toast(k ? `Let ${k} ${k === 1 ? 'person' : 'people'} go.` : 'Nobody is being held.')
-  }
-  function jobTakeoff() {
-    if (jobCd.takeoff > 0) return
-    jobCd.takeoff = JOBS.takeoffCooldown
-    trolls.jetFlyover()
-    hud.big('CLEARED FOR TAKEOFF!', 'gold', 1.4)
-    sendTroll('takeoff')
-  }
-  function jobTurbulence() {
-    if (jobCd.turbulence > 0) return
-    jobCd.turbulence = JOBS.turbulenceCooldown
-    trolls.turbulence()
-    sendTroll('turbulence')
-  }
-
   // --- VIP tag over your head ----------------------------------------------------------------------------------
   const tagCanvas = document.createElement('canvas')
   tagCanvas.width = 256
@@ -407,26 +314,24 @@ export function createTools({ scene, camera, canvas, crowd, fx, hud, powers, tro
   const pv = new Vector3()
 
   refreshBar()
-  refreshJob()
   store.on((e) => {
     if (['own', 'timed', 'expired', 'hydrate', 'set'].includes(e.type)) {
       refreshBar()
-      refreshJob()
     }
   })
 
   return {
     useTroll,
     receive,
+    // Held by a tool right now (jobs.js leaves those passengers alone).
+    pinned: (n) => pins.has(n),
     pilotAnnounce,
     refresh() {
       refreshBar()
-      refreshJob()
     },
     // Before crowd.update(): pinned NPCs, the grapple pull, VIP, visits, timers.
     update(dt) {
       cooldown = Math.max(0, cooldown - dt)
-      for (const k in jobCd) jobCd[k] = Math.max(0, jobCd[k] - dt)
       const p = player.position
       const playing = isPlaying()
       if (!playing && held) select(null)
@@ -568,7 +473,6 @@ export function createTools({ scene, camera, canvas, crowd, fx, hud, powers, tro
         for (const id of gone) hud.toast(`${TOOLS.names[id] ?? (id === 'security' ? 'Your security shift' : id)} ran out!`)
         if (gone.length) onHat()
         refreshBar()
-        refreshJob()
       }
     },
   }

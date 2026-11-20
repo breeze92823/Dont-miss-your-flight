@@ -66,7 +66,10 @@ export function createHud({ onAction }) {
 
   const role = (cls, icon, label, key, price) => {
     const b = el('button', `role ${cls}`, `<span class="burst"></span><span class="ico">${icon}</span><span class="lbl">${label}</span><span class="sub"></span>`, play)
-    tap(b, () => buyRole(key, label, price))
+    tap(b, () => {
+      sfx('pop')
+      onAction('job', key) // jobs.js: pay + enter the mode (or leave it)
+    })
     return b
   }
   const roleSec = role('r-sec', ICON.police, 'Be Security', 'security', PRICES.beSecurity)
@@ -248,28 +251,13 @@ export function createHud({ onAction }) {
     tap(no, () => closeWin())
   }
 
-  function buyRole(key, label, price) {
-    sfx('pop')
-    const owned = store.has(key)
-    if (owned) {
-      const on = store.data.hat !== key
-      store.set('hat', on ? key : null)
-      onAction('hat')
-      toast(on ? `You're on duty: ${label.replace('Be ', '')}!` : 'Hat off.')
-      return
-    }
-    confirmBuy(label, price, () => {
-      store.own('hats', key)
-      store.set('hat', key)
-      onAction('hat')
-      big(key === 'pilot' ? 'CAPTAIN ON BOARD!' : 'SECURITY ON DUTY!', 'gold', 1.6)
-    }, key === 'pilot' ? 'Wear the pilot cap. Tap again any time to take it off.' : 'Wear the security cap. Tap again any time to take it off.')
-  }
+  // Be Security / Be Pilot are modes (jobs.js): every entry costs the price (free while a Daily
+  // Reward shift runs) and the hat is on only while the mode runs.
   function refreshRoles() {
     for (const [b, key, price] of [[roleSec, 'security', PRICES.beSecurity], [rolePil, 'pilot', PRICES.bePilot]]) {
-      const owned = store.has(key)
-      b.querySelector('.sub').innerHTML = owned ? (store.data.hat === key ? 'WEARING' : 'OWNED') : `${ICON.coin}${price}`
-      b.classList.toggle('on', store.data.hat === key)
+      const on = store.data.hat === key
+      b.querySelector('.sub').innerHTML = on ? 'ON DUTY' : store.timeLeft(key) > 0 ? 'FREE SHIFT' : `${ICON.coin}${price}`
+      b.classList.toggle('on', on)
     }
   }
 

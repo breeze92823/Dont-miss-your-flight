@@ -262,24 +262,48 @@ export const GUARDS = {
   breach: ['STOP RIGHT THERE!', "Hey! You can't be back here!", 'Freeze! Out you go!'],
   radio: ['Control, we have a line skipper!', 'Code yellow! Runner past the checkpoint!', 'Backup! Passenger in a closed area!'],
   pass: ['Go right ahead!', 'All good, carry on.', 'Have a great flight!', 'Thank you, move along.'],
-  // Cutting in line: standing in a line's lane (within `laneHalf` of its path, `pastJoin` m past its
-  // join point) ahead of anyone waiting in it, without having joined. The passengers you cut in front of
-  // complain, the line's guard whistles + points to the back; moving `forward` m up the line or staying
-  // `loiter` s gets you escorted to the back of the line (where you join it). The boarding line's guard
-  // is a marshal posted at the VIP priority lane, which is VIP-only (`priority` box).
+  // Blocking / cutting a line: standing in a line's lane (within `laneHalf` of its path, `pastJoin` m
+  // past its join point) ahead of anyone waiting in it, without being in that line. After `grace` s the
+  // line's own guard walks over and gives WARNING 1/2, `warnGap` s later the LAST WARNING 2/2, and
+  // `removeGap` s after that grabs you and escorts you out of the line (to `out`, beside its join zone).
+  // Pushing `pushAhead` m further up the line skips the rest of a wait (but never sooner than `minGap`).
+  // Strikes are remembered for `memory` s, so stepping out and straight back in picks up where it left
+  // off. Other clients see their copy of the guard walk to a real player who blocks and give the same
+  // warnings (that player's own client does the removing). The boarding line's guard is a marshal
+  // posted at the VIP priority lane, which is VIP-only (`priority` box).
   cutting: {
     laneHalf: 1.05,
     pastJoin: 1.0,
-    forward: 1.2,
-    loiter: 5,
+    grace: 1.0,
+    warnGap: 5,
+    removeGap: 4,
+    minGap: 1.5,
+    pushAhead: 1.2,
+    memory: 20,
+    standOff: 1.35, // m the guard stands from the blocker while warning
+    cooldown: 3, // s after a removal before the line is watched again
+    lineGuards: {
+      checkin: { x: 15.2, z: -24.6, face: -Math.PI / 2, skin: '#a8714a', tag: 'officer diaz' },
+      security: { x: 33.4, z: -24.2, face: Math.PI / 2, skin: '#f1c7a0', tag: 'officer kim' },
+    },
+    out: {
+      checkin: { x: 16.6, z: -16.6 },
+      security: { x: 33.2, z: -38.4 },
+      boarding: { x: 135.4, z: -35.0 },
+    },
     priorityLoiter: 1.2,
     priority: { x0: 154.1, x1: 157.1, z0: -59.8, z1: -37.6 },
     marshal: { x: 153.1, z: -36.3, face: -Math.PI / 2, skin: '#e0a979', tag: 'officer lund' },
     complain: ['Hey! No cutting!', 'Back of the line!', "Excuse me, we've been waiting!", 'Rude!', 'The line starts back there!', 'Wow. Really?'],
-    shout: ['Hey! No cutting in line!', 'Back of the line, please!', 'Everyone waits their turn!'],
+    warn1: ["You're blocking the line! Step out, please.", 'Move aside, people are waiting!', 'No standing in the line. Join at the back!'],
+    warn2: ['LAST WARNING! Out of the line, now!', 'I will not ask again. MOVE!', 'Final warning! Step out of the line!'],
+    removed: ["That's it. You're out!", 'Out of the line you go!', 'Rules are rules. Out!'],
+    thanks: ['Thank you.', 'Much better.', 'Appreciated. Join at the back!'],
+    toast1: 'Security: you are blocking the line! Step out or join at the back. (Warning 1 of 2)',
+    toast2: 'LAST WARNING! Leave the line now or security removes you. (Warning 2 of 2)',
+    removedToast: 'Security removed you from the line. Join at the back like everyone else.',
     sent: ['Back of the line. Wait your turn!', 'Nice try. Back you go.', 'Line starts here, friend.'],
     priorityShout: ['VIP priority lane only!', 'Priority boarding is for VIPs!', 'No VIP tag, no priority lane!'],
-    toast: 'No cutting! Join at the back of the line.',
     priorityToast: 'The priority lane is for VIPs. Join the boarding line!',
   },
 }
@@ -656,8 +680,8 @@ export const SHOP = {
     { id: 'announce', name: 'Airport Announcement', desc: 'Say something ridiculous over the speakers!', price: PRICES.announce, art: 'megaphone', bg: 'lime' },
   ],
   jobs: [
-    { id: 'security', name: 'Be Security', desc: 'Run the checkpoint: pick who gets searched, add time, let people go.', price: PRICES.beSecurity, art: 'police', bg: 'sky' },
-    { id: 'pilot', name: 'Be The Pilot', desc: 'Fly the plane: takeoffs, turbulence and announcements.', price: PRICES.bePilot, art: 'pilot', bg: 'gold' },
+    { id: 'security', name: 'Be Security', desc: 'Run the checkpoint: search the nervous ones, add time, let people go. Paid per shift.', price: PRICES.beSecurity, art: 'police', bg: 'sky' },
+    { id: 'pilot', name: 'Be The Pilot', desc: 'Fly your own jet: takeoff, steer, land, turbulence and announcements. Paid per flight.', price: PRICES.bePilot, art: 'pilot', bg: 'gold' },
   ],
 }
 
@@ -686,13 +710,44 @@ export const TOOLS = {
   entrance: { x: 0, z: -3 }, // where the banished reappear (outside the doors)
 }
 
-// --- Jobs (tools.js job panel) ---------------------------------------------------------------------
+// --- Jobs (jobs.js): Be Security / Be Pilot are modes. Each entry costs PRICES.beSecurity / bePilot
+// (free while a Daily Reward shift for it runs); Exit ends the mode and puts you back where you were.
 export const JOBS = {
-  searchReward: 5, // coins per passenger searched as Security
-  searchTime: 4,
-  holdTime: 10, // s "Add Time" holds someone
+  searchReward: 5, // (old tools.js job pins)
+  searchTime: 4, // s a Security search takes
+  holdTime: 10, // s "Add Time" adds to a search / to how long someone waits at your desk
   turbulenceCooldown: 12,
   takeoffCooldown: 15,
+  // Security: you stand at a desk on the walkway behind the search mats; passengers come through from
+  // the lanes, stop at your desk and wait for your call. Search the nervous ones, wave the rest through.
+  security: {
+    post: { x: 82.4, z: -39.3, facing: -1.75 }, // where you stand (facing west along the walkway; the desk is front-left so the camera sees it)
+    desk: { x: 80.2, z: -41.6 }, // where the passenger stops (beside you, so the camera sees them)
+    spacing: 1.6, // m between passengers waiting for your desk
+    every: [2.5, 5], // s between new passengers
+    max: 5, // passengers on the way to / at your desk
+    speed: 2.6,
+    patience: 9, // s someone waits at the desk before walking on
+    susChance: 0.4, // share of passengers hiding something
+    catchReward: 15, // coins: searched someone who was hiding something
+    clearReward: 2, // searched someone with nothing on them
+    waveReward: 4, // let an innocent passenger go
+  },
+  // Pilot: your own jet on the runway. Takeoff rolls it down the runway, then you fly it (W/S or the
+  // joystick up/down climb and dive, A/D turn); Land glides it back onto the runway.
+  pilot: {
+    start: { x: -40, z: -190 }, // west end of the runway, nose east
+    accel: 9, // m/s² down the runway
+    rotateAt: 52, // m/s: lift off
+    cruise: 62, // m/s in the air
+    turnRate: 0.6, // rad/s at full stick
+    minAlt: 25, // m above the runway you can dive to
+    maxAlt: 280,
+    centre: { x: 200, z: -120 }, // fly further than `radius` from here and the jet turns back (the
+    radius: 360, //                 built world ends not far past the runway and the car park)
+    landReward: 20, // coins per landing after at least `minFlight` s in the air
+    minFlight: 15,
+  },
 }
 
 // --- Multiplayer: fellow passengers (net.js, remote.js; backend presence.ts) ------------------------
