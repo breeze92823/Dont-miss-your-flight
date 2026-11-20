@@ -29,6 +29,12 @@ let zoomEased = CAMERA.distance
 let rush = 0 // eased 0..1 sprint factor
 let clearance = 1 // 0..1 of the boom the walls allow, eased back out
 
+// A tighter boom for small interiors (the plane cabin): { maxDistance, maxPitch } or null.
+let zone = null
+export function setCameraZone(z) {
+  zone = z
+}
+
 export const getYaw = () => state.yaw
 export const getPitch = () => state.pitch
 
@@ -67,7 +73,7 @@ export function update(camera, dt) {
   inputState.look.dx = 0
   inputState.look.dy = 0
   const fp = isFirstPerson()
-  state.pitch = fp ? clamp(state.pitch, -CAMERA.firstPersonPitch, CAMERA.firstPersonPitch) : clamp(state.pitch, CAMERA.minPitch, CAMERA.maxPitch)
+  state.pitch = fp ? clamp(state.pitch, -CAMERA.firstPersonPitch, CAMERA.firstPersonPitch) : clamp(state.pitch, CAMERA.minPitch, zone?.maxPitch ?? CAMERA.maxPitch)
 
   // Wheel: zoom the boom, or cross between the two modes at its inner end.
   if (inputState.zoom !== 0) {
@@ -129,7 +135,7 @@ export function update(camera, dt) {
   }
 
   zoomEased += (zoomTarget - zoomEased) * (1 - Math.exp(-CAMERA.zoomEase * dt))
-  const distance = Math.max(1, zoomEased)
+  const distance = Math.max(1, Math.min(zoomEased, zone?.maxDistance ?? Infinity))
 
   look.x = followed.x
   look.y = followed.y + player.dims.height * CAMERA.targetHeight

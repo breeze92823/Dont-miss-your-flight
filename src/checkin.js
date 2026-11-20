@@ -2,8 +2,8 @@
 //   where to? (postcards) -> bag on the scale (live kg) -> 15 quick questions
 //   (funny answers; some are remembered and turn up at the security search)
 //   -> upgrade offer -> pick a seat (seat map) -> boarding pass + CHECKED IN stamp.
-// Everything priced is paid in coins. Resolves to { tags, cls, seat, dest }.
-import { AIRLINE, CHECKIN, DESTINATIONS, FEATURED_DESTINATIONS, HOME_AIRPORT, QUESTIONS } from './config.js'
+// Everything priced is paid in coins. Resolves to { tags, cls, classId, seat, dest }.
+import { AIRLINE, CHECKIN, DESTINATIONS, FEATURED_DESTINATIONS, FLIGHT, HOME_AIRPORT, QUESTIONS } from './config.js'
 import { SEAT_ICON } from './hud/dialog.js'
 import { sfx } from './audio.js'
 
@@ -111,30 +111,32 @@ export async function runCheckin(c) {
 
   // --- Upgrade offer --------------------------------------------------------------------------------
   let cls = 'ECONOMY'
+  let classId = 'economy'
   const ups = CHECKIN.upgrades
   const up = await D.ask(
-    'Psst... want an upgrade? Premium legroom, a Business recliner, or First Class!',
+    'Psst... want an upgrade? Premium legroom, a Business pod, or a First Class suite!',
     [...ups.map((u) => ({ label: u.name, style: u.style, price: u.price, icon: SEAT_ICON[u.id] })), { label: 'No thanks', style: 'white' }],
     { numbered: false },
   )
   if (up >= 0 && up < ups.length && store.spend(ups[up].price)) {
     cls = ups[up].name.toUpperCase()
+    classId = ups[up].id
     sfx('fanfare')
     fx.confetti(player.x, player.y + 2, player.z, 30)
     await say(`${ups[up].name}! Very fancy. Enjoy the legroom.`, 'wow')
   } else await say('No problem! Economy is... also a seat.', 'happy')
 
-  // --- Seat ----------------------------------------------------------------------------------------
-  const taken = new Set()
-  for (let i = 0; i < 46; i++) taken.add(`${1 + Math.floor(Math.random() * 14)}${'ABCDEF'[Math.floor(Math.random() * 6)]}`)
+  // --- Seat (in your class's section of the cabin) ----------------------------------------------------
+  const sec = classSection(classId)
+  const taken = new Set(sec.all.filter(() => Math.random() < 0.35))
   let seat = null
   const s = await D.ask('Would you like to pick your own seat? Window, aisle, right up front...', [{ label: 'Pick my seat', style: 'blue', price: CHECKIN.pickSeat }, { label: 'Random is fine', style: 'white' }], { numbered: false })
   if (s === 0 && store.spend(CHECKIN.pickSeat)) {
-    seat = await D.pickSeat(taken)
+    seat = await D.pickSeat(taken, sec)
     await say(`Seat ${seat}. Excellent choice!`, 'wow')
   } else {
-    do seat = `${4 + Math.floor(Math.random() * 10)}${'ABCDEF'[Math.floor(Math.random() * 6)]}`
-    while (taken.has(seat))
+    const free = sec.all.filter((id) => !taken.has(id))
+    seat = free[Math.floor(Math.random() * free.length)] ?? sec.all[0]
     await say('No problem, I picked a nice one for you.', 'happy')
   }
 
@@ -142,5 +144,15 @@ export async function runCheckin(c) {
   const d = DESTINATIONS[dest]
   await D.pass({ airline: AIRLINE, passenger: c.playerName, from: HOME_AIRPORT.code, fromName: HOME_AIRPORT.name, to: d.code, toName: d.name, flight: d.flight, gate: d.gate, cls, seat })
   D.close()
-  return { tags, cls, seat, dest }
+  return { tags, cls, classId, seat, dest }
+}
+
+// A class's part of the cabin (FLIGHT.classes): its row numbers, seat blocks and every seat id.
+export function classSection(id) {
+  const k = Math.max(0, FLIGHT.classes.findIndex((c) => c.id === id))
+  const c = FLIGHT.classes[k]
+  const first = FLIGHT.classes.slice(0, k).reduce((n, q) => n + q.rows, 1)
+  const rows = Array.from({ length: c.rows }, (_, i) => first + i)
+  const letters = c.seats.replace(/\|/g, '')
+  return { index: k, id: c.id, name: c.name, color: c.color, blocks: c.seats.split('|'), rows, all: rows.flatMap((r) => [...letters].map((L) => `${r}${L}`)) }
 }

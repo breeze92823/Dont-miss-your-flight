@@ -466,6 +466,28 @@ body.dialog-open .hud .hud-bottom {
   align-items: center;
   font-weight: 700;
 }
+.seat-cls {
+  color: #2f7fe0;
+}
+.seats.c-first .seat-cls {
+  color: #b8862a;
+}
+.seats.c-premium .seat-cls {
+  color: #159c8e;
+}
+/* Bigger seats up front: suites + pods are drawn wider than economy seats. */
+.seats.c-first .seat:not(.taken):not(.picked) {
+  background: linear-gradient(#ffe39a, #d39a2a) !important;
+  height: 2.6em;
+}
+.seats.c-business .seat:not(.taken):not(.picked) {
+  background: linear-gradient(#8fb6ff, #2f5fd6) !important;
+  height: 2.3em;
+}
+.seats.c-premium .seat:not(.taken):not(.picked) {
+  background: linear-gradient(#7ff0e0, #159c8e) !important;
+  height: 2.1em;
+}
 .seat-row .rn {
   color: #5a6478;
   font-size: 0.85em;

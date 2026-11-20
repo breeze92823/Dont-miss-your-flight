@@ -5,15 +5,16 @@
 // the emote they play, and their chat bubble. Positions are drawn REMOTE.delay behind real time,
 // interpolated between the poses they send ~10 a second.
 //
-// Where they are decides who sees them: the airport is shared by everyone; the cabin and the arrival
-// city only show passengers on the same flight (same zone + destination).
+// Where they are decides who sees them: the airport is shared by everyone, and so is the cabin (one
+// shared plane in the air, whatever the destination: their name tag says where they get off); the
+// arrival city only shows passengers who landed in the same city (same zone + destination).
 //
 // The lines: a passenger standing in the check-in / security / boarding line takes a place in every
 // client's copy of that line (queue.js, security.js, boarding.js read `lineMembers`), and the desk /
 // lane / mat / scanner they use is held (`holds`) so no one else is sent to it. Bot passengers fill
 // in only if PASSENGERS.bots is on, and then only while there are few real ones (`botShare`).
 import { Group, Vector3 } from 'three'
-import { PASSENGERS, PLAYER_DIMS, REMOTE, SUITCASES } from './config.js'
+import { DESTINATIONS, PASSENGERS, PLAYER_DIMS, REMOTE, SUITCASES } from './config.js'
 import { net } from './net.js'
 import { playerInRoom, playerJoined, skinTextureUrlFor } from './bloxity.js'
 import { buildDefaultCharacter, loadBaseCharacter } from './avatar/character.js'
@@ -41,8 +42,13 @@ export function createRemotePassengers({ scene, crowd, me }) {
   let airportCount = 0
 
   function sameScene(s, mine) {
-    if (s.zone === 'airport' || mine.zone === 'airport') return s.zone === mine.zone
-    return s.zone === mine.zone && s.dest === mine.dest
+    if (s.zone !== mine.zone) return false
+    return s.zone !== 'city' || s.dest === mine.dest
+  }
+  // Name tag text: in the cabin it adds where they're flying to ("Bob · Tokyo").
+  function tagText(s) {
+    const to = s.zone === 'cabin' ? DESTINATIONS[s.dest]?.name : ''
+    return `${s.vip ? '★ ' : ''}${s.username || 'Passenger'}${to ? ` · ${to}` : ''}${s.away ? ' (away)' : ''}`
   }
 
   // --- One passenger -----------------------------------------------------------------------------
@@ -51,7 +57,7 @@ export function createRemotePassengers({ scene, crowd, me }) {
     group.rotation.order = 'YXZ'
     group.visible = false
     scene.add(group)
-    const tag = label(`${s.vip ? '★ ' : ''}${s.username || 'Passenger'}`, 0.32, { color: s.vip ? '#ffd23f' : '#ffffff' })
+    const tag = label(tagText(s), 0.32, { color: s.away ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
     tag.visible = false
     tag.renderOrder = 19
     scene.add(tag)
@@ -62,9 +68,7 @@ export function createRemotePassengers({ scene, crowd, me }) {
       sid,
       group,
       tag,
-      tagName: s.username,
-      tagVip: s.vip,
-      tagAway: !!s.away,
+      tagText: tagText(s),
       bag,
       bagColor: s.suitcase,
       avatar: null,
@@ -244,13 +248,13 @@ export function createRemotePassengers({ scene, crowd, me }) {
       p.bagColor = s.suitcase
       p.bag.shellMat.color.set(suitcaseColor(s.suitcase))
     }
-    if (s.username !== p.tagName || s.vip !== p.tagVip || !!s.away !== p.tagAway) {
-      p.tagName = s.username
-      p.tagVip = s.vip
-      p.tagAway = !!s.away
+    const text = tagText(s)
+    if (text !== p.tagText) {
+      p.tagText = text
       scene.remove(p.tag)
       p.tag.material.map?.dispose()
-      p.tag = label(`${s.vip ? '★ ' : ''}${s.username || 'Passenger'}${s.away ? ' (away)' : ''}`, 0.32, { color: s.away ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
+      p.tag.material.dispose()
+      p.tag = label(text, 0.32, { color: s.away ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
       p.tag.renderOrder = 19
       scene.add(p.tag)
     }
@@ -350,6 +354,14 @@ export function createRemotePassengers({ scene, crowd, me }) {
     // Share of the usual bot passengers that should still arrive (1 = all, 0 = none).
     botShare: () => (PASSENGERS.bots ? Math.max(0, 1 - airportCount / Math.max(1, PASSENGERS.fullAt)) : 0),
     count: () => people.size,
+    // Is a real passenger sitting in this cabin seat? (their latest reported pose, any destination)
+    seatTaken(seat) {
+      for (const p of people.values()) {
+        const s = p.state
+        if (s.zone === 'cabin' && s.anim === 'sit' && !s.away && Math.abs(s.x - seat.x) < 0.3 && Math.abs(s.z - seat.z) < 0.3) return true
+      }
+      return false
+    },
     // Shown passengers near the doors etc. (exterior.update actors) and for name lookups.
     actors(out) {
       for (const p of people.values()) if (p.shown && p.group.visible) out.push(p)

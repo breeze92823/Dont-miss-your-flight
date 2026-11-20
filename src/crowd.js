@@ -487,7 +487,7 @@ export function createCrowd(scene, max = 64) {
       yaw: o.yaw ?? 0,
       speed: 0,
       phase: Math.random() * 6.28,
-      mode: o.mode ?? 'idle', // idle | type | wave | point | sit | tpose | pat | hold | cuffed | float
+      mode: o.mode ?? 'idle', // idle | type | wave | point | sit | tpose | pat | hold | cuffed | float | push | serve | stop
       headYaw: 0,
       lookT: Math.random() * 4,
       ko: 0, // 0..1 knocked over
@@ -680,6 +680,23 @@ export function createCrowd(scene, max = 64) {
       rx = -0.4 + Math.sin(n.t * 9 + 2) * 0.6
       lz = 0.7
       rz = -0.7
+    } else if (n.mode === 'push') {
+      // Cabin crew pushing a trolley: both hands forward on the bar.
+      lx = rx = -1.25 + Math.sin(n.t * 3) * 0.03
+      lz = 0.1
+      rz = -0.1
+    } else if (n.mode === 'serve') {
+      // Holding a serving tray up on the right palm, the left hand offering.
+      rx = -1.55
+      rz = -0.25
+      lx = -0.9 + Math.sin(n.t * 2) * 0.05
+      lz = 0.2
+    } else if (n.mode === 'stop') {
+      // "Excuse me!": the left hand up, palm out; the right pointing back down the aisle.
+      lx = -2.1 + Math.sin(n.t * 6) * 0.06
+      lz = 0.25
+      rx = -1.3
+      rz = -0.55
     }
     if (n.scare > 0) {
       lx = rx = -2.9

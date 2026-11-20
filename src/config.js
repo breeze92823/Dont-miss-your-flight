@@ -362,13 +362,43 @@ export const GATES = {
 // --- The flight (airport/cabin.js + flight.js) and the arrival city (airport/city.js) -----------------
 export const FLIGHT = {
   cabin: { x: 0, y: 300, z: -300 }, // the cabin interior is built up here, out of sight
-  rows: 30,
-  rowPitch: 0.92,
+  aisle: 1.45, // the two aisles run at x = cabin.x -/+ aisle (widebody, twin aisle)
+  // Classes, nose to tail. `seats` = the letters per block, blocks split by '|' (A on the left / -X).
+  // `x` = each letter's offset from the centre line. Upgrades are bought at check-in (CHECKIN.upgrades,
+  // same ids) or from the crew at the curtain (`upgrade`, a little dearer): coins only, never gems.
+  classes: [
+    { id: 'first', name: 'First Class', short: 'FIRST', rows: 2, pitch: 2.35, seats: 'A|E|K', x: { A: -2.95, E: 0, K: 2.95 }, color: '#e8b54a', upgrade: 360 },
+    { id: 'business', name: 'Business', short: 'BUSINESS', rows: 4, pitch: 1.7, seats: 'A|EF|K', x: { A: -2.47, E: -0.47, F: 0.47, K: 2.47 }, color: '#4f8dff', upgrade: 260 },
+    { id: 'premium', name: 'Premium Economy', short: 'PREMIUM', rows: 4, pitch: 1.1, seats: 'AC|DF|HK', x: { A: -3.22, C: -2.52, D: -0.37, F: 0.37, H: 2.52, K: 3.22 }, color: '#2fc4b2', upgrade: 130 },
+    { id: 'economy', name: 'Economy', short: 'ECONOMY', rows: 16, pitch: 0.9, seats: 'ABC|DEF|GHK', x: { A: -3.48, B: -2.9, C: -2.32, D: -0.58, E: 0, F: 0.58, G: 2.32, H: 2.9, K: 3.48 }, color: '#3a8bff' },
+  ],
+  // The cabin crew (cabinCrew.js): one attendant guards each class curtain; you may always walk aft, never
+  // forward past your own class. Each push past a curtain is a strike (remembered `memory` s): 1 polite,
+  // 2 firm, 3 = walked back to your seat (seatbelt on for `belted` s). During the meal service the posts
+  // are empty: sneak forward and sit in a free seat for `sneakTime` s unseen for `sneakReward` coins.
+  crew: {
+    memory: 50,
+    belted: 6,
+    push: 7.5, // m/s the polite shove back through the curtain
+    sneakTime: 12,
+    sneakReward: 40,
+    spot: 3.2, // m: an attendant this close sees a standing stowaway
+    serviceAt: 14, // s into the cruise the meal service starts
+    mealCoins: 10,
+    lines: {
+      polite: ['Excuse me! This cabin is for {cls} passengers.', 'Oh! I\'m sorry, {cls} only beyond this curtain.', 'Pardon me, may I see your boarding pass? Ah. {cls} is this way only for ticket holders.'],
+      firm: ['I really must insist. Seat {seat}, please.', 'Last time, love: back to {seat}.', 'Please return to your seat, {seat}. Thank you!'],
+      escort: ['Right, let\'s get you back to {seat}.', 'Come along, I\'ll walk you to {seat}.', 'Seatbelt on for you, I\'m afraid!'],
+      caught: ['Nice try! Back to {seat}, please.', 'Lovely attempt. {seat} misses you!', 'Hmm, that\'s not your seat, is it?'],
+      welcome: ['Welcome to {cls}!', 'Right this way, {cls} awaits!', 'Enjoy the upgrade!'],
+      post: ['Enjoy your flight!', 'Let me know if you need anything.', 'The meal service will start soon.', 'Please keep the aisle clear.'],
+    },
+  },
   cruiseTime: 240, // s in the air
   passengers: 70, // NPCs on board
   reward: 100, // coins for landing
   city: { x: -330, y: 0, z: -330 }, // the arrival street (rebuilt for each destination)
-  crewLines: ['Cabin crew, prepare for takeoff!', 'Please fasten your seatbelts.', 'Snacks are on their way!', "We're cruising at 38,000 feet.", 'Please stay seated.'],
+  crewLines: ['Chicken or pasta?', 'Tea, coffee?', 'Anything to drink?', 'Mind your elbows!', 'Coming through!'],
   cabinLines: ['we\'re flying', 'i can see clouds', 'ears popping', 'snacks when', 'my ears hurt lol', 'wheee', 'this is so cool', 'are we there yet'],
 }
 // Arrival streets: one builder, styled per destination code (palette, roofs, shop names, vehicles).
