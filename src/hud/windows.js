@@ -79,10 +79,10 @@ export function createWindows({ openWin, closeWin, onAction, toast, big, sfx }) 
     }
     store.grantTimed(d.id, d.minutes)
     if (d.kind === 'job') {
-      store.set('hat', d.id)
-      onAction('hat')
       big('SECURITY SHIFT!', 'gold', 1.6)
-      toast(`You're on duty for ${d.minutes} minutes! Use the job panel.`)
+      toast(`Free ${d.minutes}-minute shift! Tap Be Security to clock in for free.`)
+      closeWin()
+      onAction('job', d.id) // jobs.js: starts the mode right away if you're free to
     } else {
       onAction('tools')
       big(`${d.label.toUpperCase()}!`, 'gold', 1.6)
@@ -209,24 +209,14 @@ export function createWindows({ openWin, closeWin, onAction, toast, big, sfx }) 
         onAction(item.id)
       })
     } else {
-      const owned = store.has(item.id)
+      // A mode you pay for on every entry (jobs.js); free while a Daily Reward shift for it runs.
       const on = store.data.hat === item.id
-      btn = el('button', `sh-buy ${owned ? (on ? 'owned' : 'blue') : ''}`, owned ? (on ? 'On Duty' : 'Clock In') : price(item.price), c)
+      const free = store.timeLeft(item.id) > 0
+      btn = el('button', `sh-buy ${on ? 'owned' : free ? 'blue' : ''}`, on ? 'Exit' : free ? 'Start (free)' : price(item.price), c)
       tap(btn, () => {
-        if (owned) {
-          sfx('click')
-          store.set('hat', on ? null : item.id)
-          onAction('hat')
-          toast(on ? 'Clocked out.' : `You're on duty: ${item.name.replace(/^Be (The )?/, '')}!`)
-          return render()
-        }
-        if (!store.spend(item.price)) return
-        store.own('hats', item.id)
-        store.set('hat', item.id)
-        sfx('fanfare')
-        onAction('hat')
-        big(item.id === 'pilot' ? 'CAPTAIN ON BOARD!' : 'SECURITY ON DUTY!', 'gold', 1.6)
-        render()
+        sfx('click')
+        closeWin()
+        onAction('job', item.id)
       })
     }
   }

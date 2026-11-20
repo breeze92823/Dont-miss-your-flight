@@ -401,7 +401,8 @@ function initPlatformFeatures(SDK) {
     // Screen ads (required): declare every screen this game shows. Gameplay banners stay off.
     SDK.ads?.declareScreens?.({
       gameplay: {},
-      results: { slots: [{ position: 'bottom-center', sizes: ['728x90', '320x100', '320x50'] }] },
+      // middle-right, not bottom-center: the Fly Again button lives at the bottom centre of this screen.
+      results: { slots: [{ position: 'middle-right', sizes: ['300x250', '160x600', '320x100', '320x50'] }] },
     })
     // Leaderboards: the backend submits the scores; define() shows the boards in the portal.
     SDK.leaderboard?.define?.(LEADERBOARDS)

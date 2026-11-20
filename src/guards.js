@@ -839,7 +839,7 @@ function buildLectern(scene, L) {
 }
 
 // --- Gameplay ------------------------------------------------------------------------------------------------
-export function createGuards({ scene, crowd, fx, hud, store, queue, security, boarding, flight, trolls, isPlaying }) {
+export function createGuards({ scene, crowd, fx, hud, store, queue, security, boarding, flight, trolls, isPlaying, remote = null }) {
   const M = mats()
   const timers = [] // game-time callbacks (setTimeout stalls in a throttled tab)
   const later = (sec, fn) => timers.push({ t: sec, fn })
@@ -898,21 +898,29 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
   // The boarding line's marshal (no barrier): posted at the VIP priority lane.
   const CUT = GUARDS.cutting
   const marshal = makeGuard(CUT.marshal, cps.length, null)
-  const allGuards = [...cps.map((c) => c.guard), marshal]
+  // Line guards: one posted beside the check-in and the security serpentines (boarding uses the marshal).
+  const checkinGuard = makeGuard(CUT.lineGuards.checkin, cps.length + 1, null)
+  const securityGuard = makeGuard(CUT.lineGuards.security, cps.length + 2, null)
+  const allGuards = [...cps.map((c) => c.guard), marshal, checkinGuard, securityGuard]
 
-  // --- Lines you could cut into: the path, its join zone, the system that runs it, its guard ---
+  // --- Lines you could block: the path, its join zone, the system that runs it, its guard ---
+  // `free()`: the local player isn't part of this line (not in it, not being served by it), so standing
+  // in its lane is blocking it.
   const BOARDING_BUSY = ['line', 'turn', 'scan', 'gate', 'bridge', 'gone']
-  const lineDef = (id, points, jz, src, guard, active) => {
+  const lineDef = (id, points, jz, src, guard, free) => {
     const path = makePath(points)
     const jx = (jz.x0 + jz.x1) / 2
     const jzz = (jz.z0 + jz.z1) / 2
-    return { id, path, jx, jz: jzz, sJoin: path.project(jx, jzz), src, guard, active, t: 0, s0: 0, warnedAt: -99, cool: 0, behind: [] }
+    // prettier-ignore
+    return { id, path, jx, jz: jzz, sJoin: path.project(jx, jzz), src, guard, free, out: CUT.out[id], t: 0, cool: 0, behind: [], case: null, strikes: 0, strikeT: -99, rt: new Map() }
   }
   const LINES = [
-    lineDef('checkin', QUEUE.path, QUEUE.joinZone, queue, cps[0].guard, () => queue.mode === 'free'),
-    lineDef('security', SECURITY.path, SECURITY.joinZone, security, cps[1].guard, () => queue.mode === 'checked' && (security.mode === 'free' || security.mode === 'off')),
-    lineDef('boarding', GATES.linePath, GATES.joinZone, boarding, marshal, () => security.mode === 'cleared' && !BOARDING_BUSY.includes(boarding.mode)),
+    lineDef('checkin', QUEUE.path, QUEUE.joinZone, queue, checkinGuard, () => !['line', 'turn', 'desk'].includes(queue.mode)),
+    lineDef('security', SECURITY.path, SECURITY.joinZone, security, securityGuard, () => ['free', 'off', 'cleared'].includes(security.mode)),
+    lineDef('boarding', GATES.linePath, GATES.joinZone, boarding, marshal, () => !BOARDING_BUSY.includes(boarding.mode)),
   ]
+  const remoteStrikes = new Map() // real passenger -> { n, at }: warnings this client's guards gave them
+  const near = [] // remote passengers drawn this frame
   const priority = { t: 0, warnedAt: -99, cool: 0 }
 
   function makeGuard(cfg, i, cp) {
@@ -961,7 +969,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
   }
   function goHome(g, delay = 0) {
     later(delay, () => {
-      if (g.mode === 'rush') return
+      if (g.mode === 'rush' || g.mode === 'case') return
       g.busy = false
       g.mode = 'return'
       g.goal = { x: g.post.x, z: g.post.z, speed: GUARDS.walkSpeed, stop: 0.04, done: () => (g.mode = 'post') }
@@ -1259,77 +1267,234 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     if (time - c.lastInstruct > GUARDS.instructEvery && c.alert < 2) instruct(c)
   }
 
-  // --- Cutting in line ---
+  // --- Blocking / cutting a line: 2 warnings, then the line's guard removes you ---
   const tmpP = {}
   const members = []
-  // Standing in a line's lane ahead of someone waiting in it (without having joined): cutting.
-  function cutCheck(L) {
-    const pp = player.position
-    const s = L.path.project(pp.x, pp.z)
+  // Is someone standing at (x, z) in L's lane, ahead of anyone waiting in it? Returns their distance
+  // along the path, or -1. `self`: their own line entry (a real passenger), never counted as behind.
+  function blockCheck(L, x, z, self) {
+    const s = L.path.project(x, z)
     if (s < L.sJoin + CUT.pastJoin) return -1
     L.path.at(s, tmpP)
-    if (Math.hypot(tmpP.x - pp.x, tmpP.z - pp.z) > CUT.laneHalf) return -1
+    if (Math.hypot(tmpP.x - x, tmpP.z - z) > CUT.laneHalf) return -1
     L.behind.length = 0
     members.length = 0
     L.src.lineNpcs(members)
     for (const n of members) {
-      if (n.active === false) continue
+      if (n === self || n.active === false) continue
       const ns = L.path.project(n.x, n.z)
       if (ns < s - 0.5) L.behind.push([s - ns, n])
     }
     return L.behind.length ? s : -1
   }
-  function watchLine(L, dt) {
+  // A real passenger who could be blocking L (not in it, not being served, not knocked out / seated).
+  const remoteFree = (p, L) => p.state.zone === 'airport' && p.state.line !== L.id && !p.state.hold && !p.state.anim
+  const whoPos = (c) => (c.who === 'me' ? player.position : c.who)
+  const strikesOf = (who, L) => {
+    if (who === 'me') return time - L.strikeT < CUT.memory ? L.strikes : 0
+    const r = remoteStrikes.get(who)
+    return r && time - r.at < CUT.memory ? r.n : 0
+  }
+  function setStrikes(c, L, n) {
+    if (c.who === 'me') {
+      L.strikes = n
+      L.strikeT = time
+    } else remoteStrikes.set(c.who, { n, at: time })
+  }
+
+  function watchLine(L, dt, meOk) {
+    if (L.case) return runCase(L, L.case, dt, meOk)
     if (L.cool > 0) {
       L.cool -= dt
       return
     }
-    const s = L.active() && !player.auto ? cutCheck(L) : -1
-    if (s < 0) {
-      L.t = 0
+    const pp = player.position
+    // The local player first (this client is the one that can move them)...
+    if (meOk && L.free() && !player.auto && blockCheck(L, pp.x, pp.z, null) >= 0) {
+      L.t += dt
+      if (L.t > CUT.grace) openCase(L, 'me')
       return
     }
-    if (L.t === 0) L.s0 = s
-    L.t += dt
-    if (L.t > 0.25 && time - L.warnedAt > 8) complain(L)
-    if (L.t > 0.9 && (L.t > CUT.loiter || s - L.s0 > CUT.forward)) {
-      L.t = 0
-      L.cool = 4
-      sendBack(L, pick(CUT.sent))
+    L.t = 0
+    // ...then real passengers in view (their own client removes them; here the guard is seen doing it).
+    let worst = null
+    for (const p of near) {
+      if (!(remoteFree(p, L) && blockCheck(L, p.x, p.z, p) >= 0)) {
+        L.rt.delete(p)
+        continue
+      }
+      const t = (L.rt.get(p) ?? 0) + dt
+      L.rt.set(p, t)
+      if (t > CUT.grace && (!worst || t > L.rt.get(worst))) worst = p
+    }
+    for (const p of L.rt.keys()) if (!near.includes(p)) L.rt.delete(p)
+    if (worst) openCase(L, worst)
+  }
+
+  function openCase(L, who) {
+    const g = L.guard
+    if (g.mode === 'rush') return
+    const P = who === 'me' ? player.position : who
+    const n = strikesOf(who, L)
+    L.case = { who, stage: n, t: 0, s0: L.path.project(P.x, P.z), away: 0, arrived: false, back: n > 0, grabbed: false }
+    L.t = 0
+    L.rt.clear()
+    g.mode = 'case'
+    g.busy = true
+    g.rush = null
+    g.focus = who === 'me' ? null : who
+    g.watch = true
+    mark(g, n >= 2 ? 'red' : 'yellow', 4)
+    gesture(g, 'whistle', 0.7)
+    whistleFx(g)
+    sfx('hey', { vol: vol(g.x, g.z, 0.35) })
+    later(0.5, () => say(g, n ? 'You again?! Out of the line!' : 'Hey! You, in the line!', 2.4))
+  }
+
+  function closeCase(L, polite) {
+    const c = L.case
+    const g = L.guard
+    L.case = null
+    g.focus = null
+    g.goal = null
+    g.mode = 'post'
+    g.busy = false
+    if (polite && c.stage > 0) {
+      say(g, pick(CUT.thanks), 2.2)
+      gesture(g, 'usher', 1.4)
+      if (c.who === 'me') hud.toast('Thanks for stepping out of the line. Join at the back!')
+    }
+    g.watchT = 1.5
+    goHome(g, 1.6)
+  }
+
+  function runCase(L, c, dt, meOk) {
+    const g = L.guard
+    const P = whoPos(c)
+    const isMe = c.who === 'me'
+    c.t += dt
+    // A real passenger who left this scene / the game: the case is over.
+    if (!isMe && !near.includes(c.who)) return closeCase(L, false)
+    const dx = P.x - g.x
+    const dz = P.z - g.z
+    const d = Math.hypot(dx, dz)
+
+    // Removing: run at them, grab, escort out.
+    if (c.stage === 3) {
+      if (c.grabbed) return
+      if (d < 1.25 || c.t > 2.6) return grab(L, c)
+      g.goal = { x: P.x, z: P.z, speed: GUARDS.runSpeed, stop: 0.9 }
+      return
+    }
+
+    const s = isMe ? (meOk && L.free() && !player.auto ? blockCheck(L, P.x, P.z, null) : -1) : remoteFree(c.who, L) ? blockCheck(L, P.x, P.z, c.who) : -1
+    if (s < 0) {
+      c.away += dt
+      if (c.away > 0.6) closeCase(L, true)
+      return
+    }
+    c.away = 0
+
+    // Walk (or jog, from far) to a spot beside them, facing them.
+    const stand = Math.max(0, d - CUT.standOff)
+    if (stand > 0.45) {
+      const k = stand / d
+      g.goal = { x: g.x + dx * k, z: g.z + dz * k, speed: d > 6 ? GUARDS.runSpeed * 0.75 : GUARDS.walkSpeed * 1.4, stop: 0.2 }
+    } else g.goal = null
+    if (d < CUT.standOff + 0.6) c.arrived = true
+
+    const pushed = s - c.s0 > CUT.pushAhead && c.t > CUT.minGap
+    if (c.stage === 0 && (c.arrived || c.t > 3)) warn(L, c, 1, s)
+    else if (c.stage === 1 && (c.t > CUT.warnGap || pushed)) warn(L, c, 2, s)
+    else if (c.stage === 2 && (c.arrived || c.t > 3) && (c.t > (c.back ? CUT.minGap + 1 : CUT.removeGap) || pushed)) remove(L, c)
+  }
+
+  function warn(L, c, n, s) {
+    const g = L.guard
+    c.stage = n
+    c.t = 0
+    c.s0 = s
+    c.back = false
+    setStrikes(c, L, n)
+    whistleFx(g, n)
+    mark(g, n === 1 ? 'yellow' : 'red', 4.5)
+    if (n === 1) {
+      gesture(g, 'point', 2.6, L.out)
+      complainBots(L, whoPos(c))
+    } else {
+      gesture(g, 'stop', 2.6)
+      later(0.5, () => sfx('radio', { vol: vol(g.x, g.z, 0.28) }))
+    }
+    say(g, `${pick(n === 1 ? CUT.warn1 : CUT.warn2)} (${n}/2)`, 3.6)
+    sfx('talk', { vol: 0.08, f: 300 })
+    if (c.who === 'me') {
+      hud.big(n === 1 ? 'WARNING 1/2' : 'LAST WARNING 2/2', n === 1 ? 'gold' : 'red', 1.8)
+      hud.toast(n === 1 ? CUT.toast1 : CUT.toast2)
+      lastToast = time
+      flashVignette(n === 1 ? 0.3 : 0.5)
+      sfx('boo', { vol: 0.18 })
     }
   }
-  // The people you cut in front of turn and complain (bots only: real players speak for themselves),
-  // the line's guard whistles and points to the back.
-  function complain(L) {
-    L.warnedAt = time
-    const pp = player.position
+
+  function remove(L, c) {
+    const g = L.guard
+    c.stage = 3
+    c.t = 0
+    mark(g, 'red', 4)
+    say(g, pick(CUT.removed), 2.6)
+    sfx('hey', { vol: vol(g.x, g.z, 0.4) })
+    if (c.who === 'me') hud.big('STOP!', 'red', 1)
+  }
+
+  function grab(L, c) {
+    const g = L.guard
+    const P = whoPos(c)
+    c.grabbed = true
+    g.goal = null
+    g.yaw = Math.atan2(P.x - g.x, P.z - g.z)
+    gesture(g, 'grab', 0.9)
+    sfx('grunt', { vol: vol(g.x, g.z, 0.4) })
+    fx.puff(P.x, (P.y ?? Y) + 0.1, P.z, { count: 10, size: 0.4, spread: 0.4, speed: 2, life: 0.7, alpha: 0.4 })
+    // Both warnings were given: if they come straight back, the guard goes straight for the removal.
+    setStrikes(c, L, 2)
+    if (c.who !== 'me') {
+      // Their own client escorts them out; this one just shows the guard doing it.
+      later(1.1, () => L.case === c && closeCase(L, false))
+      return
+    }
+    player.stun = 0.9
+    player.velocity.x = player.velocity.z = 0
+    player.auto = null
+    later(0.5, () => {
+      const o = L.out
+      relocate(o.x, o.z, Math.atan2(L.jx - o.x, L.jz - o.z), 'REMOVED FROM THE LINE!')
+      later(0.35, () => {
+        hud.toast(CUT.removedToast)
+        lastToast = time
+        // The guard sees them off at the line's entrance.
+        g.x = o.x + (g.post.x > o.x ? 1.6 : -1.6)
+        g.z = o.z
+        g.yaw = Math.atan2(o.x - g.x, 0)
+        gesture(g, 'point', 2.4, { x: L.jx, z: L.jz })
+        say(g, 'Join at the back like everyone else!', 3)
+      })
+      later(1.2, () => {
+        L.cool = CUT.cooldown
+        if (L.case === c) closeCase(L, false)
+      })
+    })
+  }
+
+  // The bots you cut in front of turn and complain (real players speak for themselves).
+  function complainBots(L, P) {
     L.behind.sort((a, b) => a[0] - b[0])
     let k = 0
     for (const [, n] of L.behind) {
       if (n.slot === undefined || k >= 3) continue
       const nn = n
-      n.yaw = Math.atan2(pp.x - n.x, pp.z - n.z)
+      n.yaw = Math.atan2(P.x - n.x, P.z - n.z)
       later(k * 0.45, () => crowd.say(nn, pick(CUT.complain), 2.6))
       k++
-    }
-    sfx('boo', { vol: 0.22 })
-    hud.big('NO CUTTING!', 'red', 1.3)
-    flashVignette(0.3)
-    if (time - lastToast > 6) {
-      lastToast = time
-      hud.toast(CUT.toast)
-    }
-    const g = L.guard
-    if (!g.busy) {
-      g.watch = true
-      g.watchT = 4
-      whistleFx(g)
-      mark(g, 'yellow', 3.5)
-      gesture(g, 'whistle', 0.7)
-      later(0.7, () => {
-        if (!g.busy) gesture(g, 'point', 2.4, { x: L.jx, z: L.jz })
-        say(g, pick(CUT.shout), 3)
-      })
     }
   }
   // Escorted to the back of the line (its join zone, where the line system picks you up).
@@ -1441,9 +1606,11 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
         g.yaw = angTo(g.yaw, Math.atan2(dx, dz), dt * 8)
       }
     }
-    // Facing when standing: the player while watching, else the post direction.
+    // Facing when standing: who they're dealing with (the player, or a passenger) while watching, else
+    // the post direction.
     if (!moving) {
-      const face = g.watch ? Math.atan2(pp.x - g.x, pp.z - g.z) : g.post.face
+      const fp = g.focus ?? pp
+      const face = g.watch ? Math.atan2(fp.x - g.x, fp.z - g.z) : g.post.face
       g.yaw = angTo(g.yaw, face, dt * 5)
     }
     g.speed += (moving - g.speed) * damp(10, dt)
@@ -1623,9 +1790,9 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
         }
       }
     }
-    // Head tracks the player while watching (within the neck's reach).
+    // Head tracks the player (or the passenger being dealt with) while watching, within the neck's reach.
     if (g.watch && (!G || G.name !== 'point')) {
-      const pp = player.position
+      const pp = g.focus ?? player.position
       const rel = wrap(Math.atan2(pp.x - g.x, pp.z - g.z) - g.yaw)
       T.hy = clamp(rel, -1.0, 1.0)
       T.hx = clamp(-(pp.y + 1.5 - (Y + 2)) / Math.max(1, Math.hypot(pp.x - g.x, pp.z - g.z)), -0.35, 0.35)
@@ -1685,6 +1852,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
         else if (Math.abs(pp.x - b.x) > 3) c.side = 0
       }
       const active = isPlaying() && !flight.active && !player.frozen && pp.y < 40
+      let meOk = false
       if (active && !breach) {
         // Inside a closed zone: the innermost one's guard responds, out to the outermost one's safe spot.
         let inner = null
@@ -1696,11 +1864,17 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
         }
         if (inner) startBreach(inner, outer)
         else {
+          meOk = true
           for (const c of cps) if (!c.met) approach(c, dt)
-          for (const L of LINES) watchLine(L, dt)
           watchPriority(dt)
         }
       }
+      // Lines: anyone blocking one (you, or a real passenger in view) gets 2 warnings, then removed.
+      near.length = 0
+      if (remote && !flight.active) remote.actors(near)
+      for (let i = near.length - 1; i >= 0; i--) if (!near[i].state) near.splice(i, 1)
+      if (!flight.active) for (const L of LINES) watchLine(L, dt, meOk)
+      if (remoteStrikes.size > 8) for (const [p, r] of remoteStrikes) if (time - r.at > CUT.memory) remoteStrikes.delete(p)
       for (const g of allGuards) {
         // Cull guards far from the camera.
         const far = camera.position.distanceToSquared(v1.set(g.x, 1, g.z)) > 85 * 85
@@ -1728,12 +1902,20 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
         c.alert = 0
         c.strikes = 0
       }
-      for (const L of LINES) L.t = L.cool = 0
+      for (const L of LINES) {
+        L.t = L.cool = 0
+        L.case = null
+        L.strikes = 0
+        L.strikeT = -99
+        L.rt.clear()
+      }
+      remoteStrikes.clear()
       priority.t = priority.cool = 0
       for (const g of allGuards) {
         g.busy = false
         g.mode = 'return'
         g.rush = null
+        g.focus = null
         g.goal = { x: g.post.x, z: g.post.z, speed: GUARDS.walkSpeed, stop: 0.04, done: () => (g.mode = 'post') }
       }
     },
