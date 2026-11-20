@@ -196,25 +196,33 @@ export function createDialog(root, { sfx, typeSpeed = 40, hold = 0.9 }) {
         sfx('pop')
       })
     },
-    // Seat map: 14 rows x A-F; `taken` is a Set of seat ids. Resolves to the chosen seat.
-    pickSeat(taken) {
+    // Seat map of your class's section (checkin.js classSection: rows + seat blocks split by the two
+    // aisles); `taken` is a Set of seat ids. Resolves to the chosen seat.
+    pickSeat(taken, sec) {
       return new Promise((resolve) => {
         const back = el('div', 'dest-back', '', layer)
-        const card = el('div', 'seats', '<h2>PICK YOUR SEAT</h2><p>Window seats glow. Tap a free seat.</p>', back)
+        const card = el('div', `seats c-${sec.id}`, `<h2>PICK YOUR SEAT</h2><p><b class="seat-cls">${sec.name}</b> · window seats glow. Tap a free seat.</p>`, back)
         const grid = el('div', 'seat-grid', '', card)
+        const pattern = sec.blocks.join(' ')
+        const n = pattern.replace(/ /g, '').length
+        const cols = `1.6em ${[...pattern].map((c) => (c === ' ' ? '1em' : 'var(--sw)')).join(' ')}`
+        grid.style.setProperty('--sw', n > 6 ? '1.75em' : n > 4 ? '2.1em' : '2.8em')
         const head = el('div', 'seat-row head', '', grid)
-        for (const c of ['', 'A', 'B', 'C', '', 'D', 'E', 'F']) el('span', '', c, head)
-        for (let r = 1; r <= 14; r++) {
+        head.style.gridTemplateColumns = cols
+        for (const c of ` ${pattern}`) el('span', '', c === ' ' ? '' : c, head)
+        const last = pattern[pattern.length - 1]
+        for (const r of sec.rows) {
           const row = el('div', 'seat-row', '', grid)
+          row.style.gridTemplateColumns = cols
           el('span', 'rn', String(r), row)
-          for (const c of 'ABC DEF') {
+          for (const c of pattern) {
             if (c === ' ') {
               el('span', 'aisle', '', row)
               continue
             }
             const id = `${r}${c}`
             const free = !taken.has(id)
-            const s = el('button', `seat ${free ? '' : 'taken'} ${c === 'A' || c === 'F' ? 'window' : ''} ${r <= 3 ? 'front' : ''}`, '', row)
+            const s = el('button', `seat ${free ? '' : 'taken'} ${c === pattern[0] || c === last ? 'window' : ''}`, '', row)
             if (free)
               tap(s, () => {
                 sfx('select')

@@ -4,7 +4,7 @@ import * as bloxity from './bloxity.js'
 import { install as installInput, onKey } from './input.js'
 import { installTouch } from './touch.js'
 import { createPlayerBody, interpolate as interpolatePlayer, player, resetPlayer, respawn } from './player.js'
-import { setCameraSensitivity, syncYawToPlayer, update as updateCamera } from './camera.js'
+import { setCameraSensitivity, setCameraYaw, syncYawToPlayer, update as updateCamera } from './camera.js'
 import { onModeChanged, toggleMode } from './modes.js'
 import { bodyCount, initPhysics, stepPhysics } from './physics.js'
 import { createLighting } from './lighting.js'
@@ -41,7 +41,7 @@ import { buildCabin } from './airport/cabin.js'
 import { createCity } from './airport/city.js'
 import { createBoarding, inGateArea, inLounge } from './boarding.js'
 import { createFlight } from './flight.js'
-import { SIT, seatCamera, seatRender, updateSeating } from './seating.js'
+import { SIT, seatCamera, seatRender, seating, standUp, updateSeating } from './seating.js'
 
 // Boot order: Bloxity SDK -> renderer -> Rapier (async wasm) -> airport (curb,
 // terminal, hall), crowd + queue, player body, HUD -> avatar (async) -> the
@@ -149,7 +149,7 @@ security = createSecurity({ scene, crowd, hall: secHall, interior, fx, hud, stor
 // Past security: the concourse + your gate (boarding.js), then the flight + destination (flight.js).
 let flight = null
 const boarding = createBoarding({ scene, crowd, gates, secHall, hud, store, queue, security, fx, onBoarded: () => flight.board(), remote })
-flight = createFlight({ crowd, cabin, city, hud, store, queue, fx, botShare: () => remote.botShare(), onArrived: () => showResultsAd(), onFlyAgain: () => {
+flight = createFlight({ scene, crowd, cabin, city, hud, store, queue, fx, botShare: () => remote.botShare(), seatTaken: (s) => remote.seatTaken(s), others: () => remote.actors([]), onArrived: () => showResultsAd(), onFlyAgain: () => {
   bloxity.hideScreenAd()
   boarding.reset()
   security.reset()
@@ -328,7 +328,7 @@ bloxity.onProportionsChanged(() => applyProportions(avatar, bloxity.getProportio
 bloxity.onRespawnRequest(respawn)
 
 // --- Multiplayer + Bloxity platform features ---------------------------------------------------
-// Where you are, for who the other passengers see (cabin and city are per flight).
+// Where you are, for who the other passengers see (the cabin is shared by all flights, the city is per destination).
 function myScene() {
   const zone = flight?.inCabin() ? 'cabin' : flight?.inCity() ? 'city' : 'airport'
   return { zone, dest: queue?.destIndex ?? 0 }
@@ -651,5 +651,5 @@ if (import.meta.env.DEV) {
     for (let k = 0; k < seconds / step - 1; k++) tick(step, false)
     tick(step, true)
   }
-  window.__game = { advance, remote, player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport, queue, security, crowd, store, hud, powers, tools, jobs, trolls, net, boarding, flight, gates, cabin, city, guards, get cutscene() { return cutscene } }
+  window.__game = { advance, remote, player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport, queue, security, crowd, store, hud, powers, tools, jobs, trolls, net, boarding, flight, gates, cabin, city, guards, seating, standUp, setCameraYaw, get cutscene() { return cutscene } }
 }

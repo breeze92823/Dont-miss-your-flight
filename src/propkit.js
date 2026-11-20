@@ -61,6 +61,12 @@ export function neon(color, k = NEON.k, extra = {}) {
   m.addEventListener('dispose', () => neonMats.delete(m))
   return m
 }
+// Re-colour a neon material (mood lighting, blinking signs); keeps the bloom boost rules.
+export function retint(m, color, k = m.userData.k) {
+  m.userData.base.set(color)
+  m.userData.k = k
+  applyNeon(m)
+}
 export function setNeonBloom(on) {
   neonBloom = on
   for (const m of neonMats) applyNeon(m)

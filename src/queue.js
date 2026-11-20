@@ -278,9 +278,10 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       return state.result
     },
     // Dev/testing: jump straight to "checked in" with the given answers.
-    devCheckIn(tags = []) {
+    devCheckIn(tags = [], classId = 'economy', seat = null) {
+      const seats = { first: '1E', business: '4F', premium: '8D', economy: '13A' }
       state.mode = 'checked'
-      state.result = { tags: new Set(tags), cls: 'ECONOMY', seat: '13A', dest: state.destIndex }
+      state.result = { tags: new Set(tags), cls: classId.toUpperCase(), classId, seat: seat ?? seats[classId] ?? '13A', dest: state.destIndex }
       suitcase.show(false)
     },
     // Security cleared / a new trip: back to square one with a fresh bag.
