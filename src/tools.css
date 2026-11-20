@@ -1,0 +1,249 @@
+/* Hotbar, crosshair, USE button, job panel and VIP tag (tools.js). */
+.hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-b) + clamp(10px, 2vmin, 20px));
+  transform: translateX(-50%);
+  display: none;
+  gap: clamp(6px, 1vmin, 10px);
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(10, 16, 32, 0.45);
+}
+.hotbar.show {
+  display: flex;
+}
+/* Stacking at the bottom centre: hotbar, then the job panel, then the prompt. */
+.hud {
+  --hot-h: clamp(78px, 7vmin + 36px, 104px);
+}
+.in-line .hotbar {
+  bottom: calc(var(--safe-b) + clamp(84px, 13vmin, 120px));
+}
+.has-tools .job-panel {
+  bottom: calc(var(--safe-b) + var(--hot-h));
+}
+.has-tools .prompt,
+.has-tools .status {
+  bottom: calc(var(--safe-b) + var(--hot-h));
+}
+.has-job .prompt,
+.has-job .status {
+  bottom: calc(var(--safe-b) + 84px);
+}
+.has-tools.has-job .prompt,
+.has-tools.has-job .status {
+  bottom: calc(var(--safe-b) + var(--hot-h) + 74px);
+}
+.in-line .job-panel {
+  display: none;
+}
+.hotbar .slot {
+  position: relative;
+  width: clamp(48px, 7vmin, 66px);
+  height: clamp(48px, 7vmin, 66px);
+  border-radius: 12px;
+  background: linear-gradient(#f7f9fd, #cfd7e4) !important;
+  box-shadow: 0 0 0 3px var(--ink), inset 0 -0.25em 0 rgba(0, 0, 0, 0.15);
+  transition: transform 0.1s;
+}
+.hotbar .slot.on {
+  background: linear-gradient(#ffe680, #ffb21f) !important;
+  transform: translateY(-5px);
+  box-shadow: 0 0 0 3px var(--ink), 0 0 0 6px #fff, inset 0 -0.25em 0 rgba(0, 0, 0, 0.15);
+}
+.hotbar .art {
+  position: absolute;
+  inset: 12%;
+}
+.hotbar .k {
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+.hotbar .t {
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  transform: translateX(-50%);
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #182544;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.hotbar .t:empty {
+  display: none;
+}
+.tool-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px var(--ink), inset 0 0 0 2px var(--ink);
+  display: none;
+  pointer-events: none;
+}
+.tool-cross::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: #fff;
+}
+.tool-cross.show {
+  display: block;
+}
+.tool-cross.hit {
+  border-color: #ff4b55;
+  transform: scale(1.2);
+}
+.tool-cross.miss {
+  animation: crossMiss 0.3s;
+}
+@keyframes crossMiss {
+  25%,
+  75% {
+    margin-left: -17px;
+  }
+  50% {
+    margin-left: -9px;
+  }
+}
+.tool-use {
+  position: absolute;
+  right: calc(var(--safe-r) + clamp(150px, 26vmin, 230px));
+  bottom: calc(var(--safe-b) + clamp(30px, 6vmin, 60px));
+  width: clamp(64px, 11vmin, 86px);
+  height: clamp(64px, 11vmin, 86px);
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 30%, #ff9a9a, #e8283a) !important;
+  box-shadow: 0 0 0 3px var(--ink), inset 0 -0.3em 0 rgba(0, 0, 0, 0.2);
+  font-weight: 700;
+  font-size: clamp(0.9rem, 2vmin, 1.2rem);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.2em var(--ink);
+  display: none !important;
+}
+.touch-ui .tool-use.show {
+  display: block !important;
+}
+.tool-use:active {
+  transform: scale(0.92);
+}
+.job-panel {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-b) + clamp(10px, 2vmin, 20px));
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 8px;
+  border-radius: 14px;
+  background: rgba(10, 16, 32, 0.55);
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 94vw;
+}
+.job-panel.show {
+  display: flex;
+}
+.job-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  color: #9fd0ff;
+}
+.job-panel.pilot .job-title {
+  color: #ffd84a;
+}
+.job-btn {
+  position: relative;
+  min-height: 44px;
+  padding: 0 14px !important;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: clamp(0.85rem, 1.6vmin, 1.05rem);
+  background: linear-gradient(#7cc6ff, #2f7fe0) !important;
+  box-shadow: 0 0 0 3px var(--ink), inset 0 -0.25em 0 rgba(0, 0, 0, 0.2);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.18em var(--ink);
+}
+.job-panel.pilot .job-btn {
+  background: linear-gradient(#ffd66b, #ff9a1a) !important;
+}
+.job-btn.b-go {
+  background: linear-gradient(#8ef56a, #38b52e) !important;
+}
+.job-btn.cool {
+  filter: grayscale(0.8) brightness(0.8);
+}
+.job-btn i {
+  position: absolute;
+  right: -6px;
+  top: -8px;
+  font-style: normal;
+  font-size: 0.75rem;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #182544;
+  -webkit-text-stroke: 0;
+}
+.job-btn i:empty {
+  display: none;
+}
+.job-btn:active {
+  transform: scale(0.95);
+}
+.job-time {
+  width: 100%;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #ffd84a;
+}
+.job-time:empty {
+  display: none;
+}
+.vip-tag {
+  position: absolute;
+  left: 100%;
+  top: -0.2em;
+  margin-left: 0.4em;
+  padding: 0.05em 0.5em;
+  border-radius: 1em;
+  background: linear-gradient(#ffe680, #ff9d00);
+  box-shadow: 0 0 0 3px var(--ink);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.5em;
+  white-space: nowrap;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.2em var(--ink);
+}
+.mode-cutscene .hotbar,
+.mode-cutscene .job-panel,
+.mode-cutscene .tool-use,
+.win-open .hotbar,
+.win-open .job-panel {
+  display: none !important;
+}
+@media (max-width: 560px) {
+  .tool-use {
+    right: calc(var(--safe-r) + 12px);
+    bottom: calc(var(--safe-b) + 190px);
+  }
+}
