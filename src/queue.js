@@ -10,9 +10,12 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { AIRPORT, DESTINATIONS, QUEUE, QUESTIONS } from './config.js'
 import { runCheckin } from './checkin.js'
 import { player, resetPlayer } from './player.js'
+import { lineStepClear } from './lineBlockers.js'
+import { syncRemoteLine } from './linepath.js'
 import { syncYawToPlayer } from './camera.js'
 import { inputState } from './input.js'
 import { sfx } from './audio.js'
+import { rbox } from './detail.js'
 
 const Y = AIRPORT.walkY
 const CHATTER = [
@@ -76,7 +79,8 @@ const angTo = (from, to, max) => {
   return Math.abs(d) <= max ? to : from + Math.sign(d) * max
 }
 
-export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, dialog, getPlayerName, toSecurity, onCheckedIn }) {
+// remote (remote.js): real passengers take places in this line and hold the desks they use.
+export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, dialog, getPlayerName, toSecurity, onCheckedIn, remote = null }) {
   const desks = interior.desks
   const line = [] // front first: { npc } or { player: true }, each with .s
   const walkers = [] // NPCs on a free route: { npc, route, i, speed, done }
@@ -88,7 +92,14 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
 
   // Belt bags for NPC check-ins (simple merged shapes, one draw each, pooled).
   const strip = (g) => (g.index ? g.toNonIndexed() : g)
-  const bagGeo = mergeGeometries([new BoxGeometry(0.42, 0.24, 0.6).translate(0, 0.12, 0), new BoxGeometry(0.28, 0.04, 0.04).translate(0, 0.26, 0.2)].map(strip))
+  // A case lying on its back: rounded shell, ribs, seam bead, carry handle, wheel stubs at the end.
+  const bagGeo = mergeGeometries([
+    rbox(0.42, 0.24, 0.6, 0.05, 2).translate(0, 0.12, 0),
+    ...[-0.1, 0.1].map((x) => new BoxGeometry(0.05, 0.252, 0.54).translate(x, 0.12, 0)),
+    new BoxGeometry(0.432, 0.242, 0.02).translate(0, 0.12, 0),
+    rbox(0.28, 0.04, 0.045, 0.016, 1).translate(0, 0.26, 0.2),
+    ...[-0.16, 0.16].map((x) => new BoxGeometry(0.06, 0.06, 0.05).translate(x, 0.07, -0.31)),
+  ].map(strip))
   const beltBags = Array.from({ length: 8 }, () => {
     const m = new Mesh(bagGeo, new MeshStandardMaterial({ color: '#888', roughness: 0.35 }))
     m.visible = false
@@ -114,14 +125,15 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
   let arriveIn = 1
   let chatterIn = 4
 
-  // --- Seed: a full line + busy desks -------------------------------------------------------------
-  for (let i = 0; i < QUEUE.startInLine; i++) {
+  // --- Seed: a full line + busy desks (only when there are bot passengers, PASSENGERS.bots) ---------
+  const seedBots = (remote?.botShare() ?? 1) > 0
+  for (let i = 0; seedBots && i < QUEUE.startInLine; i++) {
     const s = slotS(i)
     at(s, tmp)
     const npc = crowd.add({ x: tmp.x, z: tmp.z, y: Y, yaw: tmp.yaw })
     line.push({ npc, s })
   }
-  desks.forEach((d) => {
+  if (seedBots) desks.forEach((d) => {
     const npc = crowd.add({ x: d.cust.x, z: d.cust.z, y: Y, yaw: Math.PI })
     npc.hasBag = Math.random() < 0.5
     d.busy = true
@@ -280,6 +292,18 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       interior.setFlight(state.destIndex, null)
     },
     lineLength: () => line.length,
+    // For the other passengers (net trip): standing in this line / the desk you hold.
+    get inLine() {
+      return state.mode === 'line'
+    },
+    get hold() {
+      return (state.mode === 'turn' || state.mode === 'desk') && state.desk ? `desk:${state.desk.index}` : ''
+    },
+    // NPCs standing in the check-in line (solid to the player, see lineBlockers.js).
+    lineNpcs(out) {
+      for (const e of line) if (e.npc || e.remote) out.push(e.npc ?? e.remote)
+      return out
+    },
     skipLine() {
       if (state.mode !== 'line') return false
       const i = line.indexOf(state.entry)
@@ -299,7 +323,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
         if (i >= 0) line.splice(i, 1)
         state.entry = null
       }
-      const free = desks.filter((d) => !d.busy)
+      const free = desks.filter((d) => !d.busy && !remote?.held(`desk:${d.index}`))
       const desk = free.length ? free[Math.floor(Math.random() * free.length)] : desks[desks.length - 1]
       teleport(desk.cust.x, desk.cust.z + 1.2, Math.PI)
       goToDesk(desk, false)
@@ -327,20 +351,31 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       for (const w of walkers) if (!w.npc.leaving) approaching++
       if (arriveIn <= 0) {
         arriveIn = rr(QUEUE.arriveEvery)
-        if (line.length + approaching < QUEUE.maxInLine) spawnArrival()
+        // Bot passengers only fill in while real ones are few (remote.botShare).
+        if (line.length + approaching < QUEUE.maxInLine && Math.random() < (remote?.botShare() ?? 1)) spawnArrival()
       }
 
+      // --- Real passengers take their places in the line ---
+      if (remote) syncRemoteLine(line, remote.lineMembers('checkin'), project)
+
       // --- Line shuffles forward ---
+      // (never closer than `spacing` to the one ahead, and nobody walks into the player)
+      const playerS = project(player.position.x, player.position.z)
       for (let i = 0; i < line.length; i++) {
         const e = line[i]
         const target = slotS(i)
-        if (e.player) continue
+        if (e.player || e.remote) continue
         const gap = target - e.s
         const speed = gap > 3 ? 3.3 : QUEUE.lineSpeed
-        const ds = Math.max(-speed * dt, Math.min(gap, speed * dt))
-        e.s += ds
-        at(e.s, tmp)
+        let ds = Math.max(-speed * dt, Math.min(gap, speed * dt))
+        if (ds > 0 && i > 0) ds = Math.min(ds, Math.max(0, line[i - 1].s - QUEUE.spacing - e.s))
         const n = e.npc
+        at(e.s + ds, tmp)
+        if (!lineStepClear(n, tmp.x, tmp.z, playerS > e.s)) {
+          n.speed = 0 // the player is in the way: wait
+          continue
+        }
+        e.s += ds
         n.x = tmp.x
         n.z = tmp.z
         n.speed = Math.abs(ds) / dt
@@ -350,8 +385,8 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       // --- Head of the line goes to a free desk ---
       frontCooldown -= dt
       const head = line[0]
-      if (head && frontCooldown <= 0 && head.s >= TOTAL - 0.15) {
-        const free = desks.filter((d) => !d.busy)
+      if (head && !head.remote && frontCooldown <= 0 && head.s >= TOTAL - 0.15) {
+        const free = desks.filter((d) => !d.busy && !remote?.held(`desk:${d.index}`))
         if (free.length && (!head.player || state.mode === 'line')) {
           const desk = free[Math.floor(Math.random() * free.length)]
           line.shift()
@@ -455,7 +490,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       if (chatterIn <= 0) {
         chatterIn = 4 + Math.random() * 5
         const e = line[Math.floor(Math.random() * line.length)]
-        if (e && !e.player) crowd.say(e.npc, CHATTER[Math.floor(Math.random() * CHATTER.length)], 3.2)
+        if (e?.npc) crowd.say(e.npc, CHATTER[Math.floor(Math.random() * CHATTER.length)], 3.2)
       }
 
       // --- The player ---

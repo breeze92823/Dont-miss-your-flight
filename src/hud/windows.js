@@ -6,7 +6,7 @@
 // for signed-in players (net.js; guests use the store's local calendar). Tap an unlocked day to
 // claim it; the reward is granted only once the claim is accepted.
 import './windows.css'
-import { DAILY, DESTINATIONS, DEST_SOON, FEATURED_DESTINATIONS, SHOP, SUITCASES } from '../config.js'
+import { ADS, DAILY, DESTINATIONS, DEST_SOON, FEATURED_DESTINATIONS, SHOP, SUITCASES } from '../config.js'
 import { store } from '../store.js'
 import { claimDaily, dailyNow, dailyView, onNetChange, refreshDaily } from '../net.js'
 import { ICON, suitcaseIcon } from './icons.js'
@@ -148,6 +148,17 @@ export function createWindows({ openWin, closeWin, onAction, toast, big, sfx }) 
       tap(b, () => {
         sfx('click')
         shop(id)
+      })
+    }
+    // Rewarded ad (Bloxity): free coins, only offered when an ad can play.
+    if (onAction('canAdCoins')) {
+      const ad = el('button', 'sh-adcoins', `<span class="sh-ad-tag">AD</span> Watch an ad: ${price(ADS.reward.coins)} free`, body)
+      tap(ad, async () => {
+        if (ad.disabled) return
+        ad.disabled = true
+        sfx('click')
+        await onAction('adCoins')
+        ad.disabled = false
       })
     }
     const grid = el('div', 'sh-grid', '', body)

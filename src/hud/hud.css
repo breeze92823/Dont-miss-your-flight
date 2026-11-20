@@ -19,13 +19,17 @@
 .hud button {
   pointer-events: auto;
   font-family: inherit;
-  border: 0;
-  background: none;
-  padding: 0;
   cursor: pointer;
   color: inherit;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+/* The look reset has zero specificity (:where) so each button's own class (.tile gradients,
+   .board, .hud-act ...) wins; as `.hud button` it used to wipe their backgrounds and padding. */
+:where(.hud button) {
+  border: 0;
+  background: none;
+  padding: 0;
 }
 .hud svg {
   display: block;
@@ -1150,4 +1154,227 @@ body.cutscene .touch-root {
 }
 .in-line .hint-pill {
   display: none;
+}
+
+/* Plane countdown under Board The Plane */
+.plane-timer {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  pointer-events: none;
+}
+.plane-timer.show {
+  display: flex;
+}
+.plane-timer .pt-l {
+  font-weight: 700;
+  font-size: clamp(0.75rem, 1.3vmin + 0.35rem, 1.2rem);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.22em var(--ink);
+  letter-spacing: 0.02em;
+}
+.plane-timer .pt-t {
+  font-weight: 700;
+  font-size: clamp(2.2rem, 6vmin + 0.6rem, 5rem);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.16em #0d2a6b;
+  text-shadow: 0 0.06em 0 #0d2a6b, 0 0.12em 0.3em rgba(0, 0, 0, 0.35);
+  color: #f2f8ff;
+}
+
+/* Bottom action: label + a big Skip Time / Fly Again button */
+.hud-act {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-b) + clamp(10px, 2vmin, 24px));
+  transform: translateX(-50%) translateY(150%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.45s cubic-bezier(0.2, 1.3, 0.4, 1);
+  pointer-events: none;
+}
+.has-act .hud-act {
+  transform: translateX(-50%);
+}
+.has-act.in-line .hud-act,
+.mode-cutscene .hud-act {
+  transform: translateX(-50%) translateY(150%);
+}
+.act-l {
+  font-weight: 700;
+  font-size: clamp(0.8rem, 1.3vmin + 0.4rem, 1.25rem);
+  margin-bottom: 0.15em;
+  white-space: nowrap;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.2em var(--ink);
+}
+.act-b {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.1em 1.1em 0.18em;
+  border-radius: 0.3em;
+  font-size: clamp(1.4rem, 3.6vmin + 0.4rem, 3.2rem);
+  font-weight: 700;
+  transition: transform 0.12s;
+}
+.act-b.blue {
+  background: linear-gradient(#6fd0ff 0%, #2b8dff 55%, #1d63d6 100%);
+  box-shadow: 0 0 0 0.09em #0c3277, inset 0 -0.12em 0 rgba(0, 0, 0, 0.18), 0 0.15em 0.4em rgba(0, 0, 0, 0.35);
+}
+.act-b.green {
+  background: linear-gradient(#a5ff4a 0%, #57d42a 55%, #2fa51f 100%);
+  box-shadow: 0 0 0 0.09em #145c12, inset 0 -0.12em 0 rgba(0, 0, 0, 0.18), 0 0.15em 0.4em rgba(0, 0, 0, 0.35);
+  animation: nudge 2.2s ease-in-out infinite;
+}
+.act-t {
+  line-height: 1.05;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.14em #0c3277;
+  text-shadow: 0 0.06em 0 #0c3277;
+}
+.act-b.green .act-t {
+  -webkit-text-stroke-color: #145c12;
+  text-shadow: 0 0.06em 0 #145c12;
+}
+.act-p .price {
+  font-size: 0.32em;
+}
+.act-p:empty {
+  display: none;
+}
+.act-b:active {
+  transform: scale(0.95);
+}
+.has-act .prompt,
+.has-act .status {
+  bottom: calc(var(--safe-b) + clamp(96px, 16vmin, 170px));
+}
+
+/* "now boarding" */
+.nowboarding {
+  position: absolute;
+  inset: 0;
+  background: #070b16;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s;
+  z-index: 30;
+}
+.nowboarding.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.nb-wire {
+  position: absolute;
+  top: 0;
+  height: 44%;
+  width: 3px;
+  background: #3a4252;
+}
+.nb-wire.l {
+  left: calc(50% - min(16vw, 150px));
+}
+.nb-wire.r {
+  left: calc(50% + min(16vw, 150px));
+}
+.nb-sign {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, 0) rotate(0deg);
+  transform-origin: 50% -40vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.45em 1.2em 0.6em;
+  border: 3px solid #3a4252;
+  border-radius: 0.5em;
+  background: #0b0e15;
+  font-weight: 700;
+  font-size: clamp(1.6rem, 5vmin, 3.6rem);
+  color: #fff;
+  white-space: nowrap;
+}
+.nowboarding.show .nb-sign {
+  animation: swing 2.6s ease-in-out infinite;
+}
+.nb-bar {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 0.12em;
+  border-radius: 1em;
+  background: #1c2433;
+  overflow: hidden;
+}
+.nb-bar i {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: #2b8dff;
+}
+.nowboarding.show .nb-bar i {
+  animation: nbfill 2.4s ease-in-out forwards;
+}
+@keyframes nbfill {
+  to {
+    width: 100%;
+  }
+}
+@keyframes swing {
+  0%,
+  100% {
+    transform: translate(-50%, 0) rotate(-1.2deg);
+  }
+  50% {
+    transform: translate(-50%, 0) rotate(1.2deg);
+  }
+}
+.mode-cutscene .prompt,
+.mode-cutscene .status,
+.mode-cutscene .hint-pill {
+  opacity: 0 !important;
+}
+
+/* Hidden bottom buttons also fade out: on phones they sit high (above the thumbs), where the
+   slide-down alone doesn't take them off screen. */
+.hud-bottom,
+.hud-act {
+  transition: transform 0.45s cubic-bezier(0.2, 1.3, 0.4, 1), opacity 0.3s;
+}
+.hud:not(.in-line) .hud-bottom,
+.mode-cutscene .hud-bottom,
+.hud:not(.has-act) .hud-act,
+.has-act.in-line .hud-act,
+.mode-cutscene .hud-act {
+  opacity: 0;
+  pointer-events: none;
+}
+.hud:not(.has-act) .act-b,
+.has-act.in-line .act-b,
+.mode-cutscene .act-b {
+  pointer-events: none;
+}
+@media (max-width: 560px) {
+  .touch-ui .hud-act {
+    bottom: calc(var(--safe-b) + 33%);
+  }
+  .touch-ui .has-act .prompt,
+  .touch-ui .has-act .status {
+    bottom: calc(var(--safe-b) + 33% + clamp(84px, 14vmin, 120px));
+  }
+  .act-l {
+    font-size: 0.8rem;
+  }
+}
+@media (max-height: 560px) {
+  .act-b {
+    font-size: clamp(1.1rem, 3vmin + 0.4rem, 2rem);
+  }
 }

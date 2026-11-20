@@ -18,6 +18,7 @@ export const player = {
   facing: SPAWN_FACING, // yaw the character model faces, radians
   dims: { ...PLAYER_DIMS },
   frozen: false, // cutscene: the body ignores input and stays put
+  stun: 0, // s left knocked back (guards.js shove): input ignored, the knock-back velocity glides out
   auto: null, // { x, z, speed, face? }: autopilot walks to this point (queue, check-in desk)
 }
 
@@ -52,6 +53,7 @@ export function resetPlayer(spawn = SPAWN, facing = SPAWN_FACING) {
   player.position.y = prev.y = player.renderPosition.y = spawn.y
   player.position.z = prev.z = player.renderPosition.z = spawn.z
   player.velocity.x = player.velocity.y = player.velocity.z = 0
+  player.stun = 0
   player.grounded = true
   player.facing = facing
   body?.setTranslation({ x: spawn.x, y: spawn.y + HALF, z: spawn.z }, true)
@@ -103,7 +105,9 @@ function step(dt) {
   let wishX = (fwdX * mv.z + rightX * mv.x) * scale
   let wishZ = (fwdZ * mv.z + rightZ * mv.x) * scale
   let speed = inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed
-  if (player.frozen) {
+  const stunned = player.stun > 0
+  if (stunned) player.stun = Math.max(0, player.stun - dt)
+  if (player.frozen || stunned) {
     wishX = wishZ = len = 0
     inputState.jump = false
   } else if (player.auto) {
@@ -119,7 +123,8 @@ function step(dt) {
     if (!len && player.auto.face !== undefined) player.facing = rotateTowards(player.facing, player.auto.face, PHYSICS.turnSpeed * dt)
   }
 
-  const rate = !player.grounded ? PHYSICS.airAccel : len > 0.01 ? PHYSICS.accel : PHYSICS.decel
+  // Knocked back: the shove glides out slowly instead of the usual hard stop.
+  const rate = stunned ? (player.grounded ? PHYSICS.decel * 0.22 : PHYSICS.airAccel * 0.15) : !player.grounded ? PHYSICS.airAccel : len > 0.01 ? PHYSICS.accel : PHYSICS.decel
   approach2D(player.velocity, wishX * speed, wishZ * speed, rate * dt)
 
   // Jump: buffered a little before landing, and allowed a little after leaving a ledge.

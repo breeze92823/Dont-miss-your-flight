@@ -42,3 +42,17 @@ export const angTo = (from, to, max) => {
   const d = Math.atan2(Math.sin(to - from), Math.cos(to - from))
   return Math.abs(d) <= max ? to : from + Math.sign(d) * max
 }
+
+// Real passengers (remote.js lineMembers) in a line: each takes a place in this client's copy of the
+// line as { remote, s, npc: null }, at the distance `s` they actually stand at (project), so the ones
+// ahead of you count for your place and bots queue behind them. Their own client walks them; this
+// only keeps their entries in step. Members are re-placed by `s` every frame (they may Skip Line).
+export function syncRemoteLine(line, members, project) {
+  for (let i = line.length - 1; i >= 0; i--) if (line[i].remote) line.splice(i, 1)
+  for (const m of members) {
+    const e = { remote: m, s: project(m.x, m.z), npc: null }
+    let i = line.findIndex((o) => o.s < e.s - 0.3)
+    if (i < 0) i = line.length
+    line.splice(i, 0, e)
+  }
+}

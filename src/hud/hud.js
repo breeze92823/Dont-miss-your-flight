@@ -87,6 +87,7 @@ export function createHud({ onAction }) {
   const top = el('div', 'hud-top', '', play)
   const board = el('button', 'board', `<span class="ico">${ICON.rocket}</span><span class="lbl">Board The Plane</span>${coinTag(PRICES.boardPlane)}`, top)
   tap(board, () => confirmBuy('Board The Plane', PRICES.boardPlane, () => onAction('boardPlane'), 'Skip the line and check in right now.', () => onAction('canBoard')))
+  const planeTimer = el('div', 'plane-timer', '<span class="pt-l"></span><span class="pt-t"></span>', top)
   const inLine = el('div', 'inline-pill', "You're in line!", top)
   const hintEl = el('div', 'hint-pill', '', top)
   const dialog = createDialog(root, { sfx, typeSpeed: CHECKIN.typeSpeed, hold: CHECKIN.hold })
@@ -98,6 +99,14 @@ export function createHud({ onAction }) {
   const pos = el('div', 'pos', '', bottom)
   const skipLine = el('button', 'skipline', `<span>Skip Line</span>${coinTag(PRICES.skipLine)}`, bottom)
   tap(skipLine, () => confirmBuy('Skip Line', PRICES.skipLine, () => onAction('skipLine'), 'Jump straight to the front of the line.'))
+  // Bottom action: "Plane arriving in 2:21" + Skip Time, "Seat 24E | Cruising..." + Skip Time, Fly Again.
+  const act = el('div', 'hud-act', '<div class="act-l"></div><button class="act-b"><span class="act-t"></span><span class="act-p"></span></button>', play)
+  const actL = act.querySelector('.act-l')
+  const actB = act.querySelector('.act-b')
+  let actTap = null
+  tap(actB, () => actTap?.())
+  // "now boarding": a dark card with a hanging sign while the game moves you onto the plane.
+  const nb = el('div', 'nowboarding', '<div class="nb-wire l"></div><div class="nb-wire r"></div><div class="nb-sign"><span class="nb-t">now boarding</span><span class="nb-bar"><i></i></span></div>', root)
   const promptEl = el('div', 'prompt', '', root)
   const statusEl = el('div', 'status', '', root)
   const bigEl = el('div', 'big', '', root)
@@ -411,6 +420,34 @@ export function createHud({ onAction }) {
     openAnnounce,
     refreshDaily,
     dialog,
+    confirm: confirmBuy,
+    // "PLANE ARRIVING IN" + a big countdown under Board The Plane (null hides it).
+    planeTimer(time, label = 'PLANE ARRIVING IN') {
+      planeTimer.classList.toggle('show', time != null)
+      if (time == null) return
+      planeTimer.firstChild.textContent = label
+      planeTimer.lastChild.textContent = time
+    },
+    // The bottom action button: { label, text, color: 'blue' | 'green', price, onTap } or null.
+    action(cfg) {
+      root.classList.toggle('has-act', !!cfg)
+      if (!cfg) return
+      actL.textContent = cfg.label ?? ''
+      actB.className = `act-b ${cfg.color ?? 'blue'}`
+      actB.querySelector('.act-t').textContent = cfg.text
+      actB.querySelector('.act-p').innerHTML = cfg.price ? coinTag(cfg.price) : ''
+      actTap = cfg.onTap
+    },
+    actionLabel(text) {
+      actL.textContent = text
+    },
+    showBoard(on) {
+      board.style.display = on ? '' : 'none'
+    },
+    nowBoarding(on, text = 'now boarding') {
+      nb.querySelector('.nb-t').textContent = text
+      nb.classList.toggle('show', on)
+    },
     // Dark pill under Board The Plane, e.g. "Walk to the line to join it!".
     hint(text) {
       if (text) hintEl.textContent = text
