@@ -547,7 +547,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
       }
 
       // Real passengers take their places in the line.
-      if (remote) syncRemoteLine(line, remote.lineMembers('security'), PATH.project)
+      if (remote) syncRemoteLine(line, remote.lineMembers('security'), PATH.project, PATH.total)
       // Line shuffles forward (never closer than `spacing` to the one ahead, and nobody walks into the player).
       const playerS = PATH.project(player.position.x, player.position.z)
       for (let i = 0; i < line.length; i++) {

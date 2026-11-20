@@ -912,7 +912,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     const jx = (jz.x0 + jz.x1) / 2
     const jzz = (jz.z0 + jz.z1) / 2
     // prettier-ignore
-    return { id, path, jx, jz: jzz, sJoin: path.project(jx, jzz), src, guard, free, out: CUT.out[id], t: 0, cool: 0, behind: [], case: null, strikes: 0, strikeT: -99, rt: new Map() }
+    return { id, path, jx, jz: jzz, sJoin: path.project(jx, jzz), src, guard, free, out: CUT.out[id], t: 0, cool: 0, behind: [], case: null, strikes: 0, strikeT: -99, rt: new Map(), cleared: new Set() }
   }
   const LINES = [
     lineDef('checkin', QUEUE.path, QUEUE.joinZone, queue, checkinGuard, () => !['line', 'turn', 'desk'].includes(queue.mode)),
@@ -1288,7 +1288,10 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     return L.behind.length ? s : -1
   }
   // A real passenger who could be blocking L (not in it, not being served, not knocked out / seated).
-  const remoteFree = (p, L) => p.state.zone === 'airport' && p.state.line !== L.id && !p.state.hold && !p.state.anim
+  const remoteFree = (p, L) => p.state.zone === 'airport' && p.state.line !== L.id && !p.state.hold && !p.state.anim && !p.state.away
+  // A real passenger in L whose game stopped (away) or who froze with room ahead (stalled, linepath.js):
+  // already left out of this client's line; the guard goes over so everyone sees the line being cleared.
+  const stuckIn = (p, L) => p.state.zone === 'airport' && p.state.line === L.id && (p.state.away || p.stalled)
   const whoPos = (c) => (c.who === 'me' ? player.position : c.who)
   const strikesOf = (who, L) => {
     if (who === 'me') return time - L.strikeT < CUT.memory ? L.strikes : 0
@@ -1319,6 +1322,9 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     // ...then real passengers in view (their own client removes them; here the guard is seen doing it).
     let worst = null
     for (const p of near) {
+      // Just escorted out on this screen: their own client moves them; don't re-run it at once.
+      const r = remoteStrikes.get(p)
+      if (r?.done && time - r.done < 12) continue
       if (!(remoteFree(p, L) && blockCheck(L, p.x, p.z, p) >= 0)) {
         L.rt.delete(p)
         continue
@@ -1328,7 +1334,52 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
       if (t > CUT.grace && (!worst || t > L.rt.get(worst))) worst = p
     }
     for (const p of L.rt.keys()) if (!near.includes(p)) L.rt.delete(p)
-    if (worst) openCase(L, worst)
+    if (worst) return openCase(L, worst)
+    // Stuck passengers: one visit each (again only once they've moved on and got stuck anew).
+    for (const p of L.cleared) if (!near.includes(p) || !stuckIn(p, L)) L.cleared.delete(p)
+    for (const p of near) {
+      if (L.cleared.has(p) || !stuckIn(p, L)) continue
+      L.cleared.add(p)
+      return openClear(L, p)
+    }
+  }
+
+  // Walk over to a stuck passenger and wave the line past them.
+  function openClear(L, p) {
+    const g = L.guard
+    if (g.mode === 'rush') return
+    L.case = { who: p, kind: 'clear', stage: 0, t: 0, s0: 0, away: 0, arrived: false, back: false, grabbed: false }
+    g.mode = 'case'
+    g.busy = true
+    g.focus = p
+    g.watch = true
+    mark(g, 'yellow', 3)
+  }
+  function runClear(L, c, dt) {
+    const g = L.guard
+    const P = c.who
+    c.t += dt
+    if (c.stage === 1) {
+      if (c.t > 2.6) closeCase(L, false)
+      return
+    }
+    if (!near.includes(P)) return closeCase(L, false)
+    const dx = P.x - g.x
+    const dz = P.z - g.z
+    const d = Math.hypot(dx, dz)
+    const stand = Math.max(0, d - CUT.standOff)
+    if (stand > 0.45) {
+      const k = stand / d
+      g.goal = { x: g.x + dx * k, z: g.z + dz * k, speed: d > 6 ? GUARDS.runSpeed * 0.75 : GUARDS.walkSpeed * 1.4, stop: 0.2 }
+    } else g.goal = null
+    if (d < CUT.standOff + 0.6 || c.t > 5) {
+      c.stage = 1
+      c.t = 0
+      g.goal = null
+      whistleFx(g)
+      gesture(g, 'usher', 2.2)
+      say(g, pick(CUT.clearLine), 3)
+    }
   }
 
   function openCase(L, who) {
@@ -1369,6 +1420,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
   }
 
   function runCase(L, c, dt, meOk) {
+    if (c.kind === 'clear') return runClear(L, c, dt)
     const g = L.guard
     const P = whoPos(c)
     const isMe = c.who === 'me'
@@ -1459,6 +1511,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     setStrikes(c, L, 2)
     if (c.who !== 'me') {
       // Their own client escorts them out; this one just shows the guard doing it.
+      remoteStrikes.get(c.who).done = time
       later(1.1, () => L.case === c && closeCase(L, false))
       return
     }
@@ -1908,6 +1961,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
         L.strikes = 0
         L.strikeT = -99
         L.rt.clear()
+        L.cleared.clear()
       }
       remoteStrikes.clear()
       priority.t = priority.cool = 0

@@ -64,6 +64,7 @@ export function createRemotePassengers({ scene, crowd, me }) {
       tag,
       tagName: s.username,
       tagVip: s.vip,
+      tagAway: !!s.away,
       bag,
       bagColor: s.suitcase,
       avatar: null,
@@ -243,12 +244,13 @@ export function createRemotePassengers({ scene, crowd, me }) {
       p.bagColor = s.suitcase
       p.bag.shellMat.color.set(suitcaseColor(s.suitcase))
     }
-    if (s.username !== p.tagName || s.vip !== p.tagVip) {
+    if (s.username !== p.tagName || s.vip !== p.tagVip || !!s.away !== p.tagAway) {
       p.tagName = s.username
       p.tagVip = s.vip
+      p.tagAway = !!s.away
       scene.remove(p.tag)
       p.tag.material.map?.dispose()
-      p.tag = label(`${s.vip ? '★ ' : ''}${s.username || 'Passenger'}`, 0.32, { color: s.vip ? '#ffd23f' : '#ffffff' })
+      p.tag = label(`${s.vip ? '★ ' : ''}${s.username || 'Passenger'}${s.away ? ' (away)' : ''}`, 0.32, { color: s.away ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
       p.tag.renderOrder = 19
       scene.add(p.tag)
     }
@@ -316,8 +318,9 @@ export function createRemotePassengers({ scene, crowd, me }) {
           hide(p)
           continue
         }
-        // Shared lines and held spots (airport only).
-        if (s.zone === 'airport') {
+        // Shared lines and held spots (airport only). Away passengers (their game stopped) hold nothing:
+        // nobody waits behind them.
+        if (s.zone === 'airport' && !s.away) {
           if (lines[s.line]) lines[s.line].push(p)
           if (s.hold) holds.add(s.hold)
         }

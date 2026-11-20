@@ -3,6 +3,8 @@
    the bottom right. Coins (bottom left / touch: left column), toasts and big text stay. */
 .hud.job-mode .hud-right,
 .hud.job-mode .role,
+.hud.job-mode .hud-tray,
+.hud.job-mode .tray-btn,
 .hud.job-mode .hud-top,
 .hud.job-mode .hud-bottom,
 .hud.job-mode .hud-act,
@@ -35,11 +37,24 @@ body.touch-ui .hud.job-mode .hud-coins {
 body.touch-ui.job-security .hud.job-mode .hud-coins {
   bottom: calc(var(--safe-b) + 14px);
 }
+/* The banner may sit under the chat feed (portrait phones): the tiles start below it. */
+.hud.job-mode .hud-left {
+  top: max(var(--left-top), calc(max(var(--safe-t), var(--band-y)) + clamp(8px, 1.6vmin, 18px) + 64px));
+}
+/* Landscape phones: the coins keep their spot beside the Rewards / Shop / Destinations row. */
+@media (max-height: 560px) {
+  body.touch-ui .hud.job-mode .hud-coins,
+  body.touch-ui.job-security .hud.job-mode .hud-coins {
+    top: calc(var(--left-top) + var(--tile) * 0.2);
+    bottom: auto;
+    left: calc(var(--safe-l) + clamp(8px, 1.5vmin, 22px) + var(--tile) * 3 + 64px);
+  }
+}
 
 .job-hud {
   position: absolute;
-  top: calc(var(--safe-t) + clamp(8px, 1.6vmin, 18px));
-  left: 50%;
+  top: calc(max(var(--safe-t), var(--band-y)) + clamp(8px, 1.6vmin, 18px));
+  left: var(--band-x);
   transform: translateX(-50%);
   display: none;
   align-items: center;
@@ -184,9 +199,6 @@ body.touch-ui.job-security .hud.job-mode .hud-coins {
 
 /* Small screens: the banner sits under the platform toolbar (top-left) and the actions shrink. */
 @media (max-width: 600px) {
-  .job-hud {
-    top: calc(var(--safe-t) + 58px);
-  }
   .job-hud .jh-title {
     letter-spacing: 0.02em;
   }

@@ -40,6 +40,7 @@ export const ICON = {
   skip: `<svg viewBox="0 0 64 64"><path d="M8 24h24V12l24 20-24 20V40H8z" fill="#bfe1ff" stroke="#1d3f8a" stroke-width="4" stroke-linejoin="round"/></svg>`,
   sound: `<svg viewBox="0 0 64 64"><path d="M10 24h10l14-12v40L20 40H10z" fill="#fff" ${O}/><path d="M42 22q6 10 0 20M48 16q10 16 0 32" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/></svg>`,
   mute: `<svg viewBox="0 0 64 64"><path d="M10 24h10l14-12v40L20 40H10z" fill="#fff" ${O}/><path d="M42 24l14 16M56 24L42 40" stroke="#ff5a5a" stroke-width="6" stroke-linecap="round"/></svg>`,
+  bolt: `<svg viewBox="0 0 64 64"><path d="M36 4L12 36h16l-4 24 28-34H34z" fill="#ffe14d" ${O}/><path d="M33 12L20 31" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".7"/></svg>`,
   close: `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/></svg>`,
 }
 

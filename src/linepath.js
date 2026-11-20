@@ -1,3 +1,4 @@
+import { QUEUE } from './config.js'
 // A queue path: a polyline measured by distance `s` from its start (the back of
 // the line) to its end (the head of the line).
 export function makePath(points) {
@@ -47,12 +48,37 @@ export const angTo = (from, to, max) => {
 // line as { remote, s, npc: null }, at the distance `s` they actually stand at (project), so the ones
 // ahead of you count for your place and bots queue behind them. Their own client walks them; this
 // only keeps their entries in step. Members are re-placed by `s` every frame (they may Skip Line).
-export function syncRemoteLine(line, members, project) {
+// head: the front spot's `s`. A member who stands still with free room ahead of them for
+// QUEUE.stall.after s is stalled (their game froze): left out (m.stalled = true) so nobody waits
+// behind them; they're back as soon as they move. (Away members never reach here: remote.js.)
+export function syncRemoteLine(line, members, project, head) {
   for (let i = line.length - 1; i >= 0; i--) if (line[i].remote) line.splice(i, 1)
+  const now = performance.now() / 1000
+  const ST = QUEUE.stall
   for (const m of members) {
+    if (m.stillT === undefined || Math.hypot(m.x - m.stillX, m.z - m.stillZ) > ST.moved) {
+      m.stillX = m.x
+      m.stillZ = m.z
+      m.stillT = now
+    }
     const e = { remote: m, s: project(m.x, m.z), npc: null }
     let i = line.findIndex((o) => o.s < e.s - 0.3)
     if (i < 0) i = line.length
     line.splice(i, 0, e)
+  }
+  if (head === undefined) return
+  // Front to back: the spot each one could step up to is one spacing behind the one ahead.
+  let ahead = head + QUEUE.spacing
+  for (let i = 0; i < line.length; i++) {
+    const e = line[i]
+    if (e.remote) {
+      const m = e.remote
+      m.stalled = ahead - QUEUE.spacing - e.s > ST.room && now - m.stillT > ST.after
+      if (m.stalled) {
+        line.splice(i--, 1)
+        continue
+      }
+    }
+    ahead = e.s
   }
 }

@@ -566,6 +566,14 @@
 @media (max-height: 520px) {
   .win.xw {
     max-height: 94dvh;
+    font-size: 0.78rem;
+  }
+  /* Landscape phones: a slim header leaves the height for the cards. */
+  .xw .win-head {
+    font-size: 1.5em;
+    min-height: 1.5em;
+    padding-top: 0.25em;
+    padding-bottom: 0.2em;
   }
   .dr-grid {
     grid-template-rows: repeat(2, 8em);
