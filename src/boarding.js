@@ -407,13 +407,7 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
     st.entry = { player: true, s: LINE.project(player.position.x, player.position.z) }
     line.push(st.entry)
     st.leaveHeld = 0
-    // A short line: no walk through the empty lanes, straight to your spot behind the last one.
-    const target = slotS(line.length - 1)
-    if (target - st.entry.s > QUEUE.shortcut) {
-      st.entry.s = target
-      LINE.at(target, tmp)
-      teleport(tmp.x, tmp.z, tmp.yaw)
-    } else sfx('pop')
+    sfx('pop')
     hud.big("You're in line!", 'green', 1.2)
     refreshHud()
   }

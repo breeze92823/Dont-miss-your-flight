@@ -907,17 +907,18 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
   // `free()`: the local player isn't part of this line (not in it, not being served by it), so standing
   // in its lane is blocking it.
   const BOARDING_BUSY = ['line', 'turn', 'scan', 'gate', 'bridge', 'gone']
-  const lineDef = (id, points, jz, src, guard, free) => {
+  // `watched()`: the line is open, so its lanes are guarded (the boarding lanes only once boarding opens).
+  const lineDef = (id, points, jz, src, guard, free, watched = () => true) => {
     const path = makePath(points)
     const jx = (jz.x0 + jz.x1) / 2
     const jzz = (jz.z0 + jz.z1) / 2
     // prettier-ignore
-    return { id, path, jx, jz: jzz, sJoin: path.project(jx, jzz), src, guard, free, out: CUT.out[id], t: 0, cool: 0, behind: [], case: null, strikes: 0, strikeT: -99, rt: new Map(), cleared: new Set() }
+    return { id, path, jx, jz: jzz, sJoin: path.project(jx, jzz), src, guard, free, watched, out: CUT.out[id], t: 0, cool: 0, behind: [], case: null, strikes: 0, strikeT: -99, rt: new Map(), cleared: new Set(), me: { s: -1, last: -1, lastT: -99, air: false }, hopT: -99, rPrev: new Map(), rHop: new Map() }
   }
   const LINES = [
     lineDef('checkin', QUEUE.path, QUEUE.joinZone, queue, checkinGuard, () => !['line', 'turn', 'desk'].includes(queue.mode)),
     lineDef('security', SECURITY.path, SECURITY.joinZone, security, securityGuard, () => ['free', 'off', 'cleared'].includes(security.mode)),
-    lineDef('boarding', GATES.linePath, GATES.joinZone, boarding, marshal, () => !BOARDING_BUSY.includes(boarding.mode)),
+    lineDef('boarding', GATES.linePath, GATES.joinZone, boarding, marshal, () => !BOARDING_BUSY.includes(boarding.mode), () => !['off', 'wait', 'arrive'].includes(boarding.mode)),
   ]
   const remoteStrikes = new Map() // real passenger -> { n, at }: warnings this client's guards gave them
   const near = [] // remote passengers drawn this frame
@@ -1267,16 +1268,24 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     if (time - c.lastInstruct > GUARDS.instructEvery && c.alert < 2) instruct(c)
   }
 
-  // --- Blocking / cutting a line: 2 warnings, then the line's guard removes you ---
+  // --- In the lanes without queueing (jumped the fence / stepped out): 2 warnings, then back to the start ---
   const tmpP = {}
   const members = []
-  // Is someone standing at (x, z) in L's lane, ahead of anyone waiting in it? Returns their distance
-  // along the path, or -1. `self`: their own line entry (a real passenger), never counted as behind.
-  function blockCheck(L, x, z, self) {
+  // Is (x, z) inside L's lanes (within `laneHalf` of its path, past its join point)? Returns the
+  // distance along the path, or -1. Just past the head of the line (towards the desks) doesn't count.
+  function inLane(L, x, z) {
     const s = L.path.project(x, z)
     if (s < L.sJoin + CUT.pastJoin) return -1
     L.path.at(s, tmpP)
-    if (Math.hypot(tmpP.x - x, tmpP.z - z) > CUT.laneHalf) return -1
+    const d = Math.hypot(tmpP.x - x, tmpP.z - z)
+    if (d > (s > L.path.total - 0.01 ? 0.4 : CUT.laneHalf)) return -1
+    return s
+  }
+  // inLane, and fills L.behind with whoever waits behind that spot (the bots who complain).
+  // `self`: their own line entry (a real passenger), never counted as behind.
+  function blockCheck(L, x, z, self) {
+    const s = inLane(L, x, z)
+    if (s < 0) return -1
     L.behind.length = 0
     members.length = 0
     L.src.lineNpcs(members)
@@ -1285,8 +1294,42 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
       const ns = L.path.project(n.x, n.z)
       if (ns < s - 0.5) L.behind.push([s - ns, n])
     }
-    return L.behind.length ? s : -1
+    return s
   }
+  // Could the local player be told off by L right now? Not in L, not walked by the game, L open.
+  const meStray = (L, meOk) => meOk && L.watched() && L.free() && !player.auto
+  // Fence jumps: landing in L's lanes through the air from outside them, or in a lane further up the
+  // line (`hopAhead` m) than the one you were in. Jumping back towards the entrance / out doesn't
+  // count. Remembered for CUT.hopMemory s (L.hopT / L.rHop), so the guard reacts at once and says why.
+  // track: { s (this frame, -1 = not in the lanes), last (last in-lane s), lastT, air }
+  function hopNow(k, s, air, now) {
+    let hop = false
+    if (s >= 0 && k.s < 0 && (air || k.air)) hop = now - k.lastT > 0.8 || s > k.last + CUT.hopAhead
+    if (s >= 0) {
+      k.last = s
+      k.lastT = now
+    }
+    k.s = s
+    k.air = air
+    return hop
+  }
+  function trackHops(L, meOk) {
+    const pp = player.position
+    if (hopNow(L.me, meStray(L, meOk) ? inLane(L, pp.x, pp.z) : -1, !player.grounded, time)) L.hopT = time
+    for (const p of near) {
+      let k = L.rPrev.get(p)
+      if (!k) L.rPrev.set(p, (k = { s: -1, last: -1, lastT: -99, air: false }))
+      if (hopNow(k, L.watched() && remoteFree(p, L) ? inLane(L, p.x, p.z) : -1, !p.state.grounded, time)) L.rHop.set(p, time)
+    }
+    if (L.rPrev.size > near.length) {
+      for (const p of L.rPrev.keys()) {
+        if (near.includes(p)) continue
+        L.rPrev.delete(p)
+        L.rHop.delete(p)
+      }
+    }
+  }
+  const hopped = (L, who) => time - (who === 'me' ? L.hopT : (L.rHop.get(who) ?? -99)) < CUT.hopMemory
   // A real passenger who could be blocking L (not in it, not being served, not knocked out / seated).
   const remoteFree = (p, L) => p.state.zone === 'airport' && p.state.line !== L.id && !p.state.hold && !p.state.anim && !p.state.away
   // A real passenger in L whose game stopped (away) or who froze with room ahead (stalled, linepath.js):
@@ -1306,6 +1349,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
   }
 
   function watchLine(L, dt, meOk) {
+    trackHops(L, meOk)
     if (L.case) return runCase(L, L.case, dt, meOk)
     if (L.cool > 0) {
       L.cool -= dt
@@ -1313,9 +1357,9 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     }
     const pp = player.position
     // The local player first (this client is the one that can move them)...
-    if (meOk && L.free() && !player.auto && blockCheck(L, pp.x, pp.z, null) >= 0) {
+    if (meStray(L, meOk) && inLane(L, pp.x, pp.z) >= 0) {
       L.t += dt
-      if (L.t > CUT.grace) openCase(L, 'me')
+      if (L.t > (hopped(L, 'me') ? CUT.hopGrace : CUT.grace)) openCase(L, 'me')
       return
     }
     L.t = 0
@@ -1325,13 +1369,13 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
       // Just escorted out on this screen: their own client moves them; don't re-run it at once.
       const r = remoteStrikes.get(p)
       if (r?.done && time - r.done < 12) continue
-      if (!(remoteFree(p, L) && blockCheck(L, p.x, p.z, p) >= 0)) {
+      if (!(L.watched() && remoteFree(p, L) && inLane(L, p.x, p.z) >= 0)) {
         L.rt.delete(p)
         continue
       }
       const t = (L.rt.get(p) ?? 0) + dt
       L.rt.set(p, t)
-      if (t > CUT.grace && (!worst || t > L.rt.get(worst))) worst = p
+      if (t > (hopped(L, p) ? CUT.hopGrace : CUT.grace) && (!worst || t > L.rt.get(worst))) worst = p
     }
     for (const p of L.rt.keys()) if (!near.includes(p)) L.rt.delete(p)
     if (worst) return openCase(L, worst)
@@ -1387,7 +1431,8 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     if (g.mode === 'rush') return
     const P = who === 'me' ? player.position : who
     const n = strikesOf(who, L)
-    L.case = { who, stage: n, t: 0, s0: L.path.project(P.x, P.z), away: 0, arrived: false, back: n > 0, grabbed: false }
+    const hop = hopped(L, who)
+    L.case = { who, hop, stage: n, t: 0, s0: L.path.project(P.x, P.z), away: 0, arrived: false, back: n > 0, grabbed: false }
     L.t = 0
     L.rt.clear()
     g.mode = 'case'
@@ -1399,7 +1444,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     gesture(g, 'whistle', 0.7)
     whistleFx(g)
     sfx('hey', { vol: vol(g.x, g.z, 0.35) })
-    later(0.5, () => say(g, n ? 'You again?! Out of the line!' : 'Hey! You, in the line!', 2.4))
+    later(0.5, () => say(g, n ? 'You again?! Out of the lanes!' : hop ? 'Hey! No jumping the fence!' : "Hey! You're not in this line!", 2.4))
   }
 
   function closeCase(L, polite) {
@@ -1413,7 +1458,7 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     if (polite && c.stage > 0) {
       say(g, pick(CUT.thanks), 2.2)
       gesture(g, 'usher', 1.4)
-      if (c.who === 'me') hud.toast('Thanks for stepping out of the line. Join at the back!')
+      if (c.who === 'me') hud.toast('Thanks for stepping out of the lanes. The line starts at the entrance!')
     }
     g.watchT = 1.5
     goHome(g, 1.6)
@@ -1439,7 +1484,8 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
       return
     }
 
-    const s = isMe ? (meOk && L.free() && !player.auto ? blockCheck(L, P.x, P.z, null) : -1) : remoteFree(c.who, L) ? blockCheck(L, P.x, P.z, c.who) : -1
+    if (!c.hop && hopped(L, c.who)) c.hop = true // jumped (another) fence meanwhile
+    const s = isMe ? (meStray(L, meOk) ? inLane(L, P.x, P.z) : -1) : L.watched() && remoteFree(c.who, L) ? inLane(L, P.x, P.z) : -1
     if (s < 0) {
       c.away += dt
       if (c.away > 0.6) closeCase(L, true)
@@ -1471,17 +1517,18 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     whistleFx(g, n)
     mark(g, n === 1 ? 'yellow' : 'red', 4.5)
     if (n === 1) {
-      gesture(g, 'point', 2.6, L.out)
-      complainBots(L, whoPos(c))
+      gesture(g, 'point', 2.6, { x: L.jx, z: L.jz })
+      const P = whoPos(c)
+      if (blockCheck(L, P.x, P.z, c.who === 'me' ? null : c.who) >= 0) complainBots(L, P)
     } else {
       gesture(g, 'stop', 2.6)
       later(0.5, () => sfx('radio', { vol: vol(g.x, g.z, 0.28) }))
     }
-    say(g, `${pick(n === 1 ? CUT.warn1 : CUT.warn2)} (${n}/2)`, 3.6)
+    say(g, `${pick(c.hop ? (n === 1 ? CUT.hopWarn1 : CUT.hopWarn2) : n === 1 ? CUT.warn1 : CUT.warn2)} (${n}/2)`, 3.6)
     sfx('talk', { vol: 0.08, f: 300 })
     if (c.who === 'me') {
       hud.big(n === 1 ? 'WARNING 1/2' : 'LAST WARNING 2/2', n === 1 ? 'gold' : 'red', 1.8)
-      hud.toast(n === 1 ? CUT.toast1 : CUT.toast2)
+      hud.toast(n === 1 ? (c.hop ? CUT.hopToast1 : CUT.toast1) : CUT.toast2)
       lastToast = time
       flashVignette(n === 1 ? 0.3 : 0.5)
       sfx('boo', { vol: 0.18 })
@@ -1519,17 +1566,19 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
     player.velocity.x = player.velocity.z = 0
     player.auto = null
     later(0.5, () => {
+      // Back to the start: the line's entrance (its join zone, where the line picks you up again).
       const o = L.out
-      relocate(o.x, o.z, Math.atan2(L.jx - o.x, L.jz - o.z), 'REMOVED FROM THE LINE!')
+      L.path.at(L.sJoin + 1.5, tmpP)
+      relocate(L.jx, L.jz, Math.atan2(tmpP.x - L.jx, tmpP.z - L.jz), 'BACK TO THE START!')
       later(0.35, () => {
         hud.toast(CUT.removedToast)
         lastToast = time
         // The guard sees them off at the line's entrance.
         g.x = o.x + (g.post.x > o.x ? 1.6 : -1.6)
         g.z = o.z
-        g.yaw = Math.atan2(o.x - g.x, 0)
+        g.yaw = Math.atan2(L.jx - g.x, L.jz - g.z)
         gesture(g, 'point', 2.4, { x: L.jx, z: L.jz })
-        say(g, 'Join at the back like everyone else!', 3)
+        say(g, pick(CUT.sent), 3)
       })
       later(1.2, () => {
         L.cool = CUT.cooldown
@@ -1962,6 +2011,10 @@ export function createGuards({ scene, crowd, fx, hud, store, queue, security, bo
         L.strikeT = -99
         L.rt.clear()
         L.cleared.clear()
+        L.me = { s: -1, last: -1, lastT: -99, air: false }
+        L.hopT = -99
+        L.rPrev.clear()
+        L.rHop.clear()
       }
       remoteStrikes.clear()
       priority.t = priority.cool = 0
