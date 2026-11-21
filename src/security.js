@@ -317,13 +317,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     state.entry = { player: true, s: PATH.project(player.position.x, player.position.z) }
     line.push(state.entry)
     state.leaveHeld = 0
-    // A short line: no walk through the empty lanes, straight to your spot behind the last one.
-    const target = slotS(line.length - 1)
-    if (target - state.entry.s > QUEUE.shortcut) {
-      state.entry.s = target
-      PATH.at(target, tmp)
-      teleport(tmp.x, tmp.z, tmp.yaw)
-    } else sfx('pop')
+    sfx('pop')
     hud.big("You're in line!", 'green', 1.2)
     refreshHud()
   }

@@ -70,7 +70,6 @@ export const QUEUE = {
   // spot), asked at most every `callEvery` s. (Away / idle real passengers are passed over.)
   callDepth: 3,
   callEvery: 0.4,
-  shortcut: 6, // m: joining with your spot this far up an empty stretch of lanes takes you straight there
   leaveHold: 1.0, // s of pushing the stick to step out of a line (short nudges keep your place)
   securityDoor: { x: 29.2, z: -33 },
   reward: 30, // coins for checking in
@@ -289,10 +288,14 @@ export const GUARDS = {
   breach: ['STOP RIGHT THERE!', "Hey! You can't be back here!", 'Freeze! Out you go!'],
   radio: ['Control, we have a line skipper!', 'Code yellow! Runner past the checkpoint!', 'Backup! Passenger in a closed area!'],
   pass: ['Go right ahead!', 'All good, carry on.', 'Have a great flight!', 'Thank you, move along.'],
-  // Blocking / cutting a line: standing in a line's lane (within `laneHalf` of its path, `pastJoin` m
-  // past its join point) ahead of anyone waiting in it, without being in that line. After `grace` s the
-  // line's own guard walks over and gives WARNING 1/2, `warnGap` s later the LAST WARNING 2/2, and
-  // `removeGap` s after that grabs you and escorts you out of the line (to `out`, beside its join zone).
+  // In a line's lanes without queueing in it: standing within `laneHalf` of its path, `pastJoin` m past
+  // its join point, while not in that line (jumped the stanchion fence, or stepped out of the line
+  // and stayed in the lanes; walking in through the entrance joins you). After `grace` s (`hopGrace`
+  // s when you landed there from a jump, remembered `hopMemory` s) the line's own guard walks over and
+  // gives WARNING 1/2, `warnGap` s later the LAST WARNING 2/2, and `removeGap` s after that grabs you
+  // and sends you back to the START of the line (its entrance / join zone: you queue again from the
+  // back and walk the whole path). Jumping or walking out of the lanes in time ends it ("Thank you").
+  // The boarding lanes are only guarded once boarding has opened.
   // Pushing `pushAhead` m further up the line skips the rest of a wait (but never sooner than `minGap`).
   // Strikes are remembered for `memory` s, so stepping out and straight back in picks up where it left
   // off. Other clients see their copy of the guard walk to a real player who blocks and give the same
@@ -301,7 +304,10 @@ export const GUARDS = {
   cutting: {
     laneHalf: 1.05,
     pastJoin: 1.0,
-    grace: 1.0,
+    grace: 2.5,
+    hopGrace: 0.3,
+    hopMemory: 3,
+    hopAhead: 3, // m further up the line: a jump into a later lane is a fence jump
     warnGap: 5,
     removeGap: 4,
     minGap: 1.5,
@@ -322,15 +328,18 @@ export const GUARDS = {
     priority: { x0: 154.1, x1: 157.1, z0: -59.8, z1: -37.6 },
     marshal: { x: 153.1, z: -36.3, face: -Math.PI / 2, skin: '#e0a979', tag: 'officer lund' },
     complain: ['Hey! No cutting!', 'Back of the line!', "Excuse me, we've been waiting!", 'Rude!', 'The line starts back there!', 'Wow. Really?'],
-    warn1: ["You're blocking the line! Step out, please.", 'Move aside, people are waiting!', 'No standing in the line. Join at the back!'],
-    warn2: ['LAST WARNING! Out of the line, now!', 'I will not ask again. MOVE!', 'Final warning! Step out of the line!'],
-    removed: ["That's it. You're out!", 'Out of the line you go!', 'Rules are rules. Out!'],
+    warn1: ["You're not in this line! Out of the lanes, please.", 'No wandering the lanes. The line starts at the entrance!', 'Step out, please. Join at the back!'],
+    warn2: ['LAST WARNING! Out of the lanes, now!', 'I will not ask again. MOVE!', 'Final warning! Step out or back to the start!'],
+    hopWarn1: ['No jumping the fence! Back out, please.', 'Hey! Use the entrance like everyone else!', 'Over the barrier? Nope. Step out!'],
+    hopWarn2: ['LAST WARNING! Off the lanes or back to the start!', 'Jump that fence again and you start over!', 'Final warning! Out of the lanes, now!'],
+    removed: ["That's it. Back to the start!", 'From the top, please!', 'Rules are rules. Start again!'],
     thanks: ['Thank you.', 'Much better.', 'Appreciated. Join at the back!'],
     clearLine: ['This one is away. Line, keep moving!', 'Go around, folks. Keep it moving!', 'Line stays clear. Move up, please!'],
-    toast1: 'Security: you are blocking the line! Step out or join at the back. (Warning 1 of 2)',
-    toast2: 'LAST WARNING! Leave the line now or security removes you. (Warning 2 of 2)',
-    removedToast: 'Security removed you from the line. Join at the back like everyone else.',
-    sent: ['Back of the line. Wait your turn!', 'Nice try. Back you go.', 'Line starts here, friend.'],
+    toast1: "Security: you're in the lanes without queueing! Step out, the line starts at the entrance. (Warning 1 of 2)",
+    hopToast1: 'Security: no jumping the fence! Step out of the lanes and join at the entrance. (Warning 1 of 2)',
+    toast2: 'LAST WARNING! Leave the lanes now or security sends you back to the start. (Warning 2 of 2)',
+    removedToast: 'Security sent you back to the start of the line. Walk the line like everyone else!',
+    sent: ['The line starts HERE. Wait your turn!', 'Nice try. From the start!', 'Line starts here, friend.'],
     priorityShout: ['VIP priority lane only!', 'Priority boarding is for VIPs!', 'No VIP tag, no priority lane!'],
     priorityToast: 'The priority lane is for VIPs. Join the boarding line!',
   },
