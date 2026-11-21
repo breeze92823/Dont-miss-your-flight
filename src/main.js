@@ -32,7 +32,7 @@ import { createTrolls } from './trolls.js'
 import { createGuards } from './guards.js'
 import { createTools } from './tools.js'
 import { createJobs } from './jobs.js'
-import { claimAdReward, initNet, net, onTrolled, sendEmote, sendPresence, setPresenceSource } from './net.js'
+import { claimAdReward, initNet, meIdle, net, onTrolled, sendEmote, sendPresence, setPresenceSource, wantLine } from './net.js'
 import { createRemotePassengers } from './remote.js'
 import { createEmotePlayer } from './emotes.js'
 import { ADS } from './config.js'
@@ -167,6 +167,7 @@ const jobs = createJobs({ scene, crowd, fx, hud, trolls, tools, queue, security,
 const guards = createGuards({ scene, crowd, fx, hud, store, queue, security, boarding, flight, trolls, isPlaying, remote })
 const lineBlockers = createLineBlockers() // people in lines are solid: no walking through to cut ahead
 const lineSources = [queue, security, boarding]
+let idleToast = false
 onTrolled(tools.receive)
 initNet()
 
@@ -552,6 +553,13 @@ function tick(dt, draw = true) {
   // Fellow passengers (before the lines, which give them their places).
   remote.update(dt, camera)
   sendPresence(dt)
+  // Online the server keeps the lines' order: tell it which one you stand in (it hands out tickets).
+  const inLine = queue.inLine ? 'checkin' : security.inLine ? 'security' : boarding.inLine ? 'boarding' : ''
+  wantLine(inLine)
+  // No input for a minute: the server lets the others go ahead until you're back.
+  const idleNow = !!inLine && meIdle()
+  if (idleNow && !idleToast) hud.toast('Still there? Move or tap to keep your turn')
+  idleToast = idleNow
 
   // Gameplay systems.
   if (blend >= 0) {

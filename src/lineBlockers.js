@@ -1,7 +1,9 @@
-// Solid people in lines. Every NPC standing in a line (check-in, security,
+// Solid people in lines. Every bot NPC standing in a line (check-in, security,
 // boarding) gets a kinematic capsule the player's character controller collides
 // with, so the player can't walk through the line and cut ahead; they have to
-// join at the back (or pay to skip). Kinematic bodies don't block the camera ray.
+// join at the back (or pay to skip). Real passengers are never solid: online the
+// server keeps the order (join tickets), so a lagging or stopped one can't wall
+// anybody in. Kinematic bodies don't block the camera ray.
 // Line NPCs don't shuffle into the player (`lineStepClear`, used by the three
 // line loops). A blocker that still ends up inside the player (Skip Line
 // teleports onto the head of the line, a passenger joins where you stand) stays
@@ -51,7 +53,7 @@ export function createLineBlockers(max = 64) {
     // sources: objects with lineNpcs(out). Call once per frame after the lines have moved.
     update(sources) {
       npcs.length = 0
-      for (const s of sources) s?.lineNpcs(npcs)
+      for (const s of sources) s?.lineNpcs(npcs, true) // bots only: real passengers are never solid
       const pp = player.position
       let used = 0
       for (const n of npcs) {

@@ -16,6 +16,10 @@
 // This client keeps its own entry current: `pose` ~10/s, `trip` (zone / line / held spot / what you
 // carry) and `setAvatar` when they change, `emote` when you play one (sendPresence each frame).
 //
+// Lines: the server keeps their order and hands out the desks / lanes / mats / scanner (wantLine,
+// myTicket, skipLineOnServer, callMe, claimSpot); `active` reports player input so an idle player is
+// passed over instead of holding everyone up.
+//
 // Daily Reward: server-authoritative for signed-in players (`daily` / `claimDaily` -> `dailyResult`,
 // on the server's UTC days); guests and offline players use the store's local calendar.
 // Trolls: `sendTroll(id, text)` relays to everyone else; theirs arrive through `onTrolled`.
@@ -181,6 +185,11 @@ export function sendPresence(dt) {
     aliveIn = REMOTE.aliveEvery
     send('alive', {})
   }
+  const now = performance.now()
+  if (inputAt > activeAt && now - activeAt > REMOTE.activeEvery * 1000) {
+    activeAt = now
+    send('active', {})
+  }
   poseIn -= dt
   tripIn -= dt
   if (poseIn > 0 && tripIn > 0) return
@@ -208,6 +217,63 @@ export function sendPresence(dt) {
     }
   }
 }
+// --- Lines (server-ordered, backend lines.ts) ----------------------------------------------------
+// Online, the server keeps every shared line's order (a ticket per passenger, join order) and hands
+// out the spots at the ends (desk / lane / scanner) and the search mats one at a time. Offline the
+// game runs its own lines (queue.js, security.js, boarding.js fall back to the local order).
+const me = () => net.room?.state?.players?.get?.(net.room.sessionId) ?? null
+// (Only a server that syncs `ticket` runs the lines: an older one leaves them to this client.)
+export const linesOnServer = () => net.connected && typeof me()?.ticket === 'number'
+let skipped = null // { kind, until }: a Skip Line the server may not have applied yet
+let calling = 0 // callMe requests in flight: no line reconcile meanwhile (the answer moves you on)
+let wantSent = { kind: null, at: -1e9 }
+// Each frame (main): the line this client stands in ('' = none). Keeps the server's line in step.
+export function wantLine(kind) {
+  if (!linesOnServer() || calling) return
+  if ((me().line || '') === kind) return
+  const now = performance.now()
+  if (wantSent.kind === kind && now - wantSent.at < 1000) return
+  wantSent = { kind, at: now }
+  send(kind ? 'joinLine' : 'leaveLine', kind ? { kind } : {})
+}
+// This client's ticket in `kind` (Infinity = none yet: behind every real passenger).
+export function myTicket(kind) {
+  if (skipped?.kind === kind && performance.now() < skipped.until) return -Infinity
+  const p = me()
+  return p && p.line === kind && p.ticket ? p.ticket : Infinity
+}
+export function skipLineOnServer(kind) {
+  if (!linesOnServer()) return
+  if ((me().line || '') !== kind) {
+    send('joinLine', { kind })
+    wantSent = { kind, at: performance.now() }
+  }
+  skipped = { kind, until: performance.now() + 1500 }
+  send('skipLine', { kind })
+}
+// Is it this client's turn in `kind`? Resolves to the spot key the server sends you to, or ''.
+export async function callMe(kind, keys) {
+  calling++
+  try {
+    const r = await request('callMe', { kind, keys }, 'called', false)
+    return r?.kind === kind && typeof r.key === 'string' ? r.key : ''
+  } finally {
+    calling--
+  }
+}
+// A free spot outside a line (search mats): resolves to the key handed to you, or ''.
+export async function claimSpot(keys) {
+  const r = await request('claimSpot', { keys }, 'spot', false)
+  return typeof r?.key === 'string' ? r.key : ''
+}
+// No input for a while (server `idle`): the others pass you over in lines.
+export const meIdle = () => !!me()?.idle
+
+// Player input (keys, mouse, touch) goes up as `active` every REMOTE.activeEvery s while it happens.
+let inputAt = 0
+let activeAt = -1e9
+const touched = () => (inputAt = performance.now())
+
 export function sendEmote(id) {
   sentPresence.emote = id || ''
   if (net.connected) send('emote', { id: sentPresence.emote })
@@ -262,6 +328,8 @@ function attach(room) {
     waiting.dailyResult?.(r)
   })
   room.onMessage('adRewardResult', (r) => waiting.adRewardResult?.(r))
+  room.onMessage('called', (r) => waiting.called?.(r))
+  room.onMessage('spot', (r) => waiting.spot?.(r))
   room.onMessage('trolled', (m) => {
     if (typeof m?.id === 'string') onTroll({ id: m.id, from: String(m.from || 'Someone').slice(0, 32), text: String(m.text || '') })
   })
@@ -273,6 +341,8 @@ function attach(room) {
     net.daily = null
     sentPresence.pose = sentPresence.trip = ''
     sentPresence.avatar = null
+    wantSent = { kind: null, at: -1e9 }
+    activeAt = -1e9
     updateRoom('')
     changed('daily')
     changed('room')
@@ -332,6 +402,7 @@ async function connect() {
 
 export function initNet() {
   window.addEventListener('pagehide', saveNow)
+  for (const ev of ['keydown', 'pointerdown', 'pointermove', 'wheel', 'touchstart']) window.addEventListener(ev, touched, { passive: true, capture: true })
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) saveNow()
     // Tell the others at once (the missing beats would take a few seconds).

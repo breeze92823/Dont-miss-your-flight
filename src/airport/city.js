@@ -6,6 +6,11 @@
 // water towers in New York, terraces with chimneys + a red phone box and double-decker in London,
 // limestone with iron balconies and mansard roofs in Paris, neon signs, lanterns and vending machines in
 // Tokyo, sandstone arches, roof terraces and palms in Cairo, each with its landmark on the skyline.
+// The other cities mix those flags with hipped tile roofs, front gables, snow, spruces, shutters,
+// corrugated cladding, parked bikes and wave-mosaic paving; their landmarks (Colosseum, Opera House,
+// tower in the desert, statue on the peak, windmills, temple prangs, basalt-column church, suspension
+// bridge, minaret, hill tower, victory column, Table Mountain, domed mosque, Parthenon, sky-park
+// towers + big wheel, Taj Mahal) are procedural, set behind the street's end with mountains or hills.
 //
 // Draw calls: almost every static part shares one vertex-coloured material (plus a metal one) and is
 // baked; facades share one material per wall colour (window repeats live in the UVs); every shop sign
@@ -28,6 +33,7 @@ import {
   PlaneGeometry,
   RepeatWrapping,
   Shape,
+  SphereGeometry,
   SRGBColorSpace,
   TorusGeometry,
 } from 'three'
@@ -172,6 +178,14 @@ function paintBay(style, wall, seed) {
       ctx.fillStyle = shade(wall, 0.94 + rand() * 0.08)
       ctx.fillRect(x + 1, y + 1, 30, 20)
     }
+  } else if (style.corrugated) {
+    // corrugated iron cladding: vertical ribs
+    for (let x = 0; x < W; x += 8) {
+      ctx.fillStyle = shade(wall, 0.86)
+      ctx.fillRect(x, 0, 3, H)
+      ctx.fillStyle = 'rgba(255,255,255,0.14)'
+      ctx.fillRect(x + 4, 0, 2, H)
+    }
   }
   // grime: darker toward the bottom of each storey
   const gr = ctx.createLinearGradient(0, 0, 0, H)
@@ -262,8 +276,8 @@ function paintBay(style, wall, seed) {
   } else if (arch) {
     ctx.fillRect(wx + ww / 2 - 3, wy + 10, 6, wh - 10)
     ctx.fillRect(wx, wy + 54, ww, 5)
-    // turquoise shutters folded back
-    ctx.fillStyle = '#2a7a8a'
+    // shutters folded back (turquoise unless the city says otherwise)
+    ctx.fillStyle = style.shutters ?? '#2a7a8a'
     ctx.fillRect(wx - 34, wy + 54, 22, wh - 54)
     ctx.fillRect(wx + ww + 12, wy + 54, 22, wh - 54)
     ctx.fillStyle = 'rgba(0,0,0,0.25)'
@@ -275,15 +289,44 @@ function paintBay(style, wall, seed) {
     ctx.fillRect(wx + ww / 2 - 4, wy, 8, wh)
     ctx.fillRect(wx, wy + wh * 0.42, ww, 7)
   }
+  if (style.shutters && !arch) {
+    // louvred shutters folded back beside the window
+    ctx.fillStyle = style.shutters
+    ctx.fillRect(wx - 46, wy - 4, 32, wh + 8)
+    ctx.fillRect(wx + ww + 14, wy - 4, 32, wh + 8)
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'
+    for (let y = wy + 2; y < wy + wh; y += 8) {
+      ctx.fillRect(wx - 44, y, 28, 2)
+      ctx.fillRect(wx + ww + 16, y, 28, 2)
+    }
+  }
   // shadow cast by the sill (the sill itself is geometry)
   ctx.fillStyle = 'rgba(0,0,0,0.22)'
   ctx.fillRect(wx - 16, wy + wh + 22, ww + 32, 10)
   return c
 }
-function paintPaving(col) {
+function paintPaving(col, waves = false) {
   const c = cv(256)
   const ctx = c.getContext('2d')
   const rand = mulberry32(17)
+  if (waves) {
+    // black + white mosaic waves (the Copacabana promenade): tiles seamlessly every 256 px
+    ctx.fillStyle = '#f4f1ea'
+    ctx.fillRect(0, 0, 256, 256)
+    ctx.fillStyle = '#23252b'
+    for (let y0 = 0; y0 < 256; y0 += 64) {
+      ctx.beginPath()
+      for (let x = 0; x <= 256; x += 4) ctx.lineTo(x, y0 + 16 + Math.sin((x / 256) * Math.PI * 4) * 14)
+      for (let x = 256; x >= 0; x -= 4) ctx.lineTo(x, y0 + 40 + Math.sin((x / 256) * Math.PI * 4) * 14)
+      ctx.closePath()
+      ctx.fill()
+    }
+    for (let i = 0; i < 2600; i++) {
+      ctx.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+      ctx.fillRect(rand() * 256, rand() * 256, 2, 2)
+    }
+    return c
+  }
   ctx.fillStyle = shade(col, 0.74)
   ctx.fillRect(0, 0, 256, 256)
   for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
@@ -650,6 +693,117 @@ function paintVending(col) {
   }
   return c
 }
+// One bay x one tier of a Roman arcade: block courses, pilasters, a dark arch, a cornice on top.
+function paintArcade(stone) {
+  const c = cv(128)
+  const ctx = c.getContext('2d')
+  const rand = mulberry32(61)
+  ctx.fillStyle = stone
+  ctx.fillRect(0, 0, 128, 128)
+  for (let y = 0; y < 128; y += 16) {
+    ctx.fillStyle = shade(stone, 0.86)
+    ctx.fillRect(0, y, 128, 2)
+  }
+  ctx.fillStyle = shade(stone, 1.08)
+  ctx.fillRect(0, 14, 12, 114)
+  ctx.fillRect(116, 14, 12, 114)
+  ctx.fillStyle = '#3a2e24'
+  ctx.beginPath()
+  ctx.moveTo(28, 128)
+  ctx.lineTo(28, 60)
+  ctx.arc(64, 60, 36, Math.PI, 0)
+  ctx.lineTo(100, 128)
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = 'rgba(0,0,0,0.35)' // depth inside the arch
+  ctx.fillRect(28, 60, 10, 68)
+  ctx.strokeStyle = shade(stone, 1.12)
+  ctx.lineWidth = 4
+  ctx.beginPath()
+  ctx.arc(64, 60, 40, Math.PI, 0)
+  ctx.stroke()
+  ctx.fillStyle = shade(stone, 0.78)
+  ctx.fillRect(0, 0, 128, 10)
+  ctx.fillStyle = shade(stone, 1.14)
+  ctx.fillRect(0, 10, 128, 3)
+  for (let i = 0; i < 500; i++) {
+    ctx.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.07)'
+    ctx.fillRect(rand() * 128, rand() * 128, 3, 3)
+  }
+  return c
+}
+// Moorish minaret panel: red-ochre stone, a cusped window, a lozenge (sebka) lattice above it.
+function paintMinaret() {
+  const c = cv(128)
+  const ctx = c.getContext('2d')
+  const rand = mulberry32(73)
+  ctx.fillStyle = '#c98a5a'
+  ctx.fillRect(0, 0, 128, 128)
+  for (let y = 0; y < 128; y += 10) {
+    ctx.fillStyle = 'rgba(80,40,20,0.18)'
+    ctx.fillRect(0, y, 128, 1.5)
+  }
+  ctx.strokeStyle = '#a8683e'
+  ctx.lineWidth = 3
+  for (let x = 16; x < 128; x += 24) {
+    ctx.beginPath()
+    ctx.moveTo(x - 12, 40)
+    ctx.lineTo(x, 22)
+    ctx.lineTo(x + 12, 40)
+    ctx.lineTo(x, 58)
+    ctx.closePath()
+    ctx.stroke()
+  }
+  ctx.fillStyle = '#e8b890'
+  ctx.fillRect(40, 66, 48, 58)
+  ctx.fillStyle = '#2e2018'
+  ctx.beginPath()
+  ctx.moveTo(48, 124)
+  ctx.lineTo(48, 86)
+  for (let k = 0; k < 3; k++) ctx.arc(56 + k * 8, 86, 4.5, Math.PI, 0)
+  ctx.lineTo(80, 124)
+  ctx.closePath()
+  ctx.fill()
+  for (let i = 0; i < 500; i++) {
+    ctx.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)'
+    ctx.fillRect(rand() * 128, rand() * 128, 3, 3)
+  }
+  return c
+}
+// A Mughal iwan: white marble frame, inlaid border, a deep pointed arch with a small one inside.
+function paintIwan() {
+  const c = cv(128, 192)
+  const ctx = c.getContext('2d')
+  ctx.fillStyle = '#f3efe7'
+  ctx.fillRect(0, 0, 128, 192)
+  ctx.strokeStyle = '#3a3a3a'
+  ctx.lineWidth = 2
+  ctx.strokeRect(8, 8, 112, 184)
+  ctx.strokeRect(14, 14, 100, 178)
+  const pointed = (x0, x1, yb, ys, yt) => {
+    const mx = (x0 + x1) / 2
+    ctx.beginPath()
+    ctx.moveTo(x0, yb)
+    ctx.lineTo(x0, ys)
+    ctx.quadraticCurveTo(x0, yt + (ys - yt) * 0.3, mx, yt)
+    ctx.quadraticCurveTo(x1, yt + (ys - yt) * 0.3, x1, ys)
+    ctx.lineTo(x1, yb)
+    ctx.closePath()
+  }
+  const g = ctx.createLinearGradient(0, 30, 0, 192)
+  g.addColorStop(0, '#9a948a')
+  g.addColorStop(1, '#d8d2c6')
+  ctx.fillStyle = g
+  pointed(26, 102, 192, 80, 30)
+  ctx.fill()
+  ctx.fillStyle = '#2e2a26'
+  pointed(48, 80, 192, 132, 108)
+  ctx.fill()
+  ctx.fillStyle = '#5a5248'
+  pointed(50, 78, 100, 78, 56)
+  ctx.fill()
+  return c
+}
 
 // =====================================================================================================
 export function createCity(scene) {
@@ -693,7 +847,7 @@ export function createCity(scene) {
       metal: own(new MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.55 })),
       leaf: own(new MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true })),
       frond: own(new MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: DoubleSide })),
-      walk: own(new MeshStandardMaterial({ map: tex(paintPaving(style.sidewalk)), roughness: 0.9 })),
+      walk: own(new MeshStandardMaterial({ map: tex(paintPaving(style.sidewalk, style.waves)), roughness: 0.9 })),
       road: own(new MeshStandardMaterial({ map: tex(paintRoad(), 1, 40), roughness: 0.9 })),
       zebra: own(new MeshStandardMaterial({ map: tex(paintZebra()), roughness: 0.8 })),
       glass: own(new MeshStandardMaterial({ color: '#1d3f78', roughness: 0.08, metalness: 0.5 })),
@@ -716,6 +870,8 @@ export function createCity(scene) {
     const B = (parent, w, h, d, col, x, y, z, ry = 0) => P(parent, new BoxGeometry(w, h, d), col, x, y, z, 0, ry)
     const IRON = '#1b1d22'
     const STEEL = '#c8ccd4'
+    const SNOW = '#f2f5f9'
+    const roofCol = style.snow ? SNOW : style.roofCol ?? '#b5562e'
     // railing panels (fire escapes, balconies): one alpha-tested plane instead of dozens of balusters
     const railMat = style.fireEscapes || style.balconies ? own(new MeshStandardMaterial({ map: tex(paintRailing(style.balconies)), color: '#2a2c31', alphaTest: 0.5, side: DoubleSide, roughness: 0.5, metalness: 0.3 })) : null
     const railPanel = (parent, len, h, x, y, z, ry = 0) => mesh(parent, scaleUV(new PlaneGeometry(len, h), Math.max(1, Math.round(len / 0.5)), 1), railMat, x, y, z, 0, ry, 0)
@@ -895,10 +1051,10 @@ export function createCity(scene) {
       mesh(Fg, cropUV(new PlaneGeometry(signW, 0.72), 0.5 - fu / 2, 1 - (row + 1) / 8, 0.5 + fu / 2, 1 - row / 8), M.signs, 0, 3.45, 0.195)
       mesh(Fg, awningGeo(sw), awnMats[awnI])
       for (const s of [-1, 1]) B(Fg, 0.03, 0.03, 1.6, IRON, s * (sw / 2 - 0.1), 2.68, 0.75).rotation.x = 0.37
-      if (style.neon) {
+      if (style.neon || style.lanterns) {
         // paper lanterns under the awning
         const lan = lathe([[0, 0], [0.12, 0.04], [0.17, 0.18], [0.12, 0.34], [0, 0.38]], 8)
-        for (const s of [-1, 1]) mesh(Fg, lan, neonMat('#ff5a3a', 1.4), s * (sw / 2 - 0.6), 1.7, 1.35)
+        for (const s of [-1, 1]) mesh(Fg, lan, neonMat(style.lanternCol ?? '#ff5a3a', 1.4), s * (sw / 2 - 0.6), 1.7, 1.35)
       }
       // ledge over the shops + cornice (two steps) with corbels on the street side
       B(S, w + 0.3, 0.25, d + 0.3, style.trim, cx, Y + 4.1, cz)
@@ -908,8 +1064,9 @@ export function createCity(scene) {
       const roofTop = H + 0.425
       const flatRoof = style.roof === 'flat' || style.roof === 'signs' || style.roof === 'terrace'
       if (flatRoof) {
-        // parapet + coping + tar roof + clutter
-        B(S, w - 0.4, 0.02, d - 0.4, '#4d5058', cx, Y + roofTop + 0.01, cz)
+        // parapet + coping + tar roof (or a layer of snow) + clutter
+        if (style.snow) B(S, w - 0.2, 0.3, d - 0.2, SNOW, cx, Y + roofTop + 0.15, cz)
+        else B(S, w - 0.4, 0.02, d - 0.4, '#4d5058', cx, Y + roofTop + 0.01, cz)
         const ph = style.roof === 'terrace' ? 0.9 : 0.7
         for (const s of [-1, 1]) {
           B(S, w + 0.3, ph, 0.22, wall, cx, Y + roofTop + ph / 2, cz + s * (d / 2 + 0.04))
@@ -986,6 +1143,31 @@ export function createCity(scene) {
             B(Fg, 0.08, 1.6, 0.08, IRON, k, H + 1.2, -off - 0.7).rotation.x = -0.6
           }
           B(Fg, bwid, 0.05, 0.5, IRON, 0, H + 0.9, -off - 0.4) // catwalk
+        }
+      } else if (style.roof === 'tiles') {
+        // a hipped roof of clay tiles (or snow) with deep eaves
+        const rh = 2.2 + rand() * 1.2
+        B(S, w + 0.9, 0.18, d + 0.9, dk(roofCol, 0.75), cx, Y + roofTop + 0.09, cz)
+        const r = P(S, new CylinderGeometry(0.01, 1, 1, 4, 1), roofCol, cx, Y + roofTop + 0.18 + rh / 2, cz, 0, Math.PI / 4, 0)
+        r.scale.set((w + 0.8) * 0.71, rh, (d + 0.8) * 0.71)
+        if (rand() < 0.5) {
+          B(Fg, 0.9, 1.8, 0.9, wall, frontLen * 0.25, H + 1.6, -off * 1.1)
+          B(Fg, 1.06, 0.14, 1.06, style.trim, frontLen * 0.25, H + 2.55, -off * 1.1)
+        }
+      } else if (style.roof === 'gable') {
+        // a row of front gables (canal houses / Victorians): a wall-coloured triangle on the facade,
+        // a pitched roof running back from it, a hoist beam or a little round window at the top
+        const ng = Math.max(1, Math.round(frontLen / 4.6))
+        const gw = frontLen / ng
+        const rd = off * 2 - 0.4
+        for (let k = 0; k < ng; k++) {
+          const a = -half + (k + 0.5) * gw
+          const gh = gw * (0.55 + deco() * 0.25)
+          P(Fg, prism(gw + 0.3, gh + 0.15, rd), roofCol === SNOW ? SNOW : dk(roofCol, 1), a, roofTop - 0.05, -off - 0.2)
+          P(Fg, prism(gw - 0.1, gh - 0.1, 0.4), wall, a, roofTop, 0.0)
+          B(Fg, gw * 0.3, 0.12, 0.3, style.trim, a, roofTop + gh * 0.55, 0.22)
+          if (deco() < 0.5) B(Fg, 0.14, 0.14, 1.1, IRON, a, roofTop + gh - 0.7, 0.5)
+          else mesh(Fg, new CircleGeometry(0.32, 10), M.glass, a, roofTop + gh * 0.4, 0.21)
         }
       }
       if (style.waterTowers && rand() < 0.6) {
@@ -1114,6 +1296,8 @@ export function createCity(scene) {
       g.computeVertexNormals()
       return tint(g, style.tree)
     })()
+    const pineGeos = [tint(new ConeGeometry(1, 1.6, 8), style.tree), tint(new ConeGeometry(1, 1.6, 8), dk(style.tree, 0.85))]
+    const snowCap = tint(new ConeGeometry(1, 1, 8), SNOW)
     const tree = (x, z) => {
       if (style.palms) {
         const lean = (deco() - 0.5) * 0.6
@@ -1131,6 +1315,16 @@ export function createCity(scene) {
           mesh(S, frondGeo, M.frond, px, py + 0.05, z, -0.15 - deco() * 0.2, a, 0).rotation.order = 'YXZ'
         }
         for (let k = 0; k < 3; k++) P(S, new IcosahedronGeometry(0.15, 0), '#5a3d22', px + Math.sin(k * 2.1) * 0.22, py - 0.2, z + Math.cos(k * 2.1) * 0.22)
+      } else if (style.pines) {
+        // a spruce: short trunk, four stacked cones (snow-dusted tips in a snowy city)
+        const s = 0.9 + deco() * 0.3
+        P(S, pole(0.18, 0, 1.4, 8, 0.14), '#5a3d28', x, Y, z)
+        for (let k = 0; k < 4; k++) {
+          const r = (1.7 - k * 0.36) * s
+          const y = Y + (1.1 + k * 1.15) * s
+          mesh(S, pineGeos[k % 2], M.leaf, x, y + r * 0.7, z, 0, deco() * 3, 0).scale.set(r, r * 1.25, r)
+          if (style.snow) mesh(S, snowCap, M.leaf, x, y + r * 1.25, z, 0, deco() * 3, 0).scale.set(r * 0.55, r * 0.5, r * 0.55)
+        }
       } else {
         mesh(S, trunkGeo, M.paint, x, Y + 1.6, z)
         for (const [a, tilt] of [[0.6, 0.7], [3.4, 0.6]]) {
@@ -1142,6 +1336,7 @@ export function createCity(scene) {
           const b = mesh(S, blobGeos[k % 3], M.leaf, x + dx, Y + dy, z + dz, deco() * 3, deco() * 3, 0)
           b.scale.set(s, s * 0.9, s)
         })
+        if (style.snow) mesh(S, snowCap, M.leaf, x, Y + 5.55, z).scale.set(1.1, 0.5, 1.1)
       }
       // tree pit: soil + a grate frame
       B(S, 1.3, 0.04, 1.3, '#4a3a2a', x, Y + 0.02, z)
@@ -1152,7 +1347,7 @@ export function createCity(scene) {
       solid(0.3, 1.5, 0.3, x, Y + 1.5, z)
     }
     // street lamps: a cobra-head on a curved arm, or (London / Paris) a fluted post with lanterns
-    const classic = style.roof === 'chimneys' || style.roof === 'mansard'
+    const classic = style.classicLamps ?? (style.roof === 'chimneys' || style.roof === 'mansard')
     const lampBase = tint(lathe([[0.26, 0], [0.26, 0.38], [0.18, 0.48], [0.13, 0.58]], 10), IRON)
     const lampPole = tint(pole(0.13, 0.5, 6.2, 8, 0.09), IRON)
     const lampArc = tint(new TorusGeometry(0.6, 0.05, 5, 8, Math.PI / 2), IRON)
@@ -1212,6 +1407,33 @@ export function createCity(scene) {
     }
     tree(-16, -12)
     tree(16, -12)
+    if (style.bikes) {
+      // rows of parked bikes along both kerbs: two wheels, a frame triangle, saddle + bars
+      const wheel = tint(new TorusGeometry(0.33, 0.028, 4, 16).rotateY(Math.PI / 2), IRON)
+      const BIKE_COLS = ['#1b1d22', '#2a5c3a', '#7a1f2a', '#1b3d6b', '#c8c2b0', '#e8a03a']
+      const bike = (x, z, col) => {
+        for (const dz of [-0.52, 0.52]) mesh(S, wheel, M.paint, x, Y + 0.35, z + dz)
+        B(S, 0.04, 0.04, 0.72, col, x, Y + 0.62, z + 0.02)
+        B(S, 0.04, 0.04, 0.66, col, x, Y + 0.48, z - 0.14).rotation.x = -0.55
+        B(S, 0.04, 0.46, 0.04, col, x, Y + 0.6, z - 0.26).rotation.x = 0.2
+        B(S, 0.04, 0.5, 0.04, col, x, Y + 0.6, z + 0.42).rotation.x = -0.25
+        B(S, 0.1, 0.05, 0.24, IRON, x, Y + 0.86, z - 0.3)
+        B(S, 0.5, 0.035, 0.035, IRON, x, Y + 0.88, z + 0.36)
+      }
+      for (const s of [-1, 1]) for (let z = 24; z < L1 - 20; z += 27) {
+        const n = 3 + Math.floor(deco() * 3)
+        for (let k = 0; k < n; k++) bike(s * 8.4, z + k * 0.7, BIKE_COLS[Math.floor(deco() * BIKE_COLS.length)])
+        solid(0.25, 0.5, n * 0.35 + 0.3, s * 8.4, Y + 0.5, z + (n - 1) * 0.35)
+      }
+    }
+    if (style.snow) {
+      // ploughed snowbanks along the kerbs
+      const bank = tint(new IcosahedronGeometry(1, 1), SNOW)
+      for (const s of [-1, 1]) for (let z = 2; z < L1 - 12; z += 3.2) {
+        const b = mesh(S, bank, M.leaf, s * (ROAD + 0.7), Y + 0.05, z + deco(), deco() * 3, deco() * 3, 0)
+        b.scale.set(0.55 + deco() * 0.2, 0.35 + deco() * 0.15, 1.4 + deco() * 0.4)
+      }
+    }
     if (style.phoneBox) {
       // red telephone box: plinth, corner posts, glazed sides with bars, crown + domed roof, lit sign
       const g = new Group()
@@ -1260,6 +1482,52 @@ export function createCity(scene) {
     // --- Landmark on the skyline ---------------------------------------------------------------------
     const LM = new Group()
     LM.position.set(0, Y, L1 + 120)
+    // moving parts (windmill sails, a big wheel) live outside the bake; same frame as LM
+    const dyn = new Group()
+    root.add(dyn)
+    const spin = []
+    // shared landmark helpers
+    const jag = (g, amt, seed) => {
+      // wobble a shape's outline (same displacement for duplicated seam vertices: no cracks)
+      const p = g.attributes.position
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i)
+        const y = p.getY(i)
+        const z = p.getZ(i)
+        const f = 1 + amt * Math.sin(x * 0.07 + z * 0.05 + seed) * Math.cos(z * 0.06 - y * 0.04 + seed * 2)
+        p.setXYZ(i, x * f, y, z * f)
+      }
+      return g
+    }
+    // a low-poly peak, optionally snow-capped above `cap` (fraction of its height from the top)
+    const mountain = (x, z, r, h, col, cap = 0) => {
+      const g = jag(new ConeGeometry(r, h, 11, 8), 0.16, x * 0.13 + z * 0.07)
+      const p = g.attributes.position
+      const a = new Float32Array(p.count * 3)
+      const c0 = new Color(col)
+      const c1 = new Color(SNOW)
+      for (let i = 0; i < p.count; i++) {
+        const t = (p.getY(i) + h / 2) / h
+        const c = cap && t > 1 - cap ? c1 : c0
+        const k = cap && t > 1 - cap ? 1 : 0.88 + t * 0.24
+        a.set([c.r * k, c.g * k, c.b * k], i * 3)
+      }
+      g.setAttribute('color', new BufferAttribute(a, 3))
+      mesh(LM, g, M.leaf, x, h / 2 - 1, z)
+    }
+    const domePts = (r, h, n = 10) => Array.from({ length: n + 1 }, (_, i) => [r * Math.cos((i / n) * Math.PI / 2), h * Math.sin((i / n) * Math.PI / 2)])
+    const onionPts = (r, h) => [[r * 0.82, 0], [r * 0.98, h * 0.12], [r * 1.05, h * 0.3], [r * 0.95, h * 0.48], [r * 0.7, h * 0.66], [r * 0.38, h * 0.82], [r * 0.14, h * 0.93], [0, h]]
+    const umbrellaPine = (x, z, s) => {
+      P(LM, pole(0.5 * s, 0, 13 * s, 6, 0.32 * s), '#6a4a32', x, 0, z)
+      mesh(LM, tint(new IcosahedronGeometry(1, 1), '#3f6a2e'), M.leaf, x, 14 * s, z).scale.set(8 * s, 3 * s, 8 * s)
+    }
+    const cypress = (x, z, s) => mesh(LM, tint(new IcosahedronGeometry(1, 1), '#2f4f2a'), M.leaf, x, 9 * s, z).scale.set(2.2 * s, 10 * s, 2.2 * s)
+    const latOf = (col) => own(new MeshStandardMaterial({ map: tex(paintLattice()), color: col, alphaTest: 0.5, side: DoubleSide, roughness: 0.6, metalness: 0.3 }))
+    // a straight member from (x0, y0) to (x1, y1) in LM's XY plane at depth z
+    const beam = (x0, y0, x1, y1, z, t, col) => {
+      const len = Math.hypot(x1 - x0, y1 - y0)
+      B(LM, len, t, t, col, (x0 + x1) / 2, (y0 + y1) / 2, z).rotation.z = Math.atan2(y1 - y0, x1 - x0)
+    }
     if (style.landmark === 'skyline') {
       const om = own(new MeshStandardMaterial({ map: tex(paintOffice(3)), roughness: 0.4, metalness: 0.2 }))
       for (let i = 0; i < 9; i++) {
@@ -1368,8 +1636,416 @@ export function createCity(scene) {
       B(LM, 9, 4, 3, '#2a6a9a', -95, 8.5, -32)
       for (const s of [-1, 1]) B(LM, 2.4, 2, 10, SAND, -95 + s * 3, 1, -36)
       LM.position.z += 60
+    } else if (style.landmark === 'colosseum') {
+      // three arcaded tiers all round, the attic storey only on the far side (the near one fell)
+      const STONE = '#d9bc8c'
+      const arc = own(new MeshStandardMaterial({ map: tex(paintArcade(STONE)), roughness: 0.9, side: DoubleSide }))
+      const ringWall = (r, h, y0, t0, tl, perRing, tiers) => {
+        const g = scaleUV(new CylinderGeometry(r, r, h, 72, 1, true, t0, tl), (perRing * tl) / (Math.PI * 2), tiers)
+        mesh(LM, g, arc, 0, y0 + h / 2, 0).scale.z = 0.78
+      }
+      ringWall(100, 66, 0, 0, Math.PI * 2, 64, 3)
+      ringWall(100, 22, 66, -Math.PI * 0.6, Math.PI * 1.2, 64, 1)
+      ringWall(80, 56, 0, 0, Math.PI * 2, 52, 3) // the inner ring, seen through the gap
+      for (const y of [66, 44, 22]) P(LM, new TorusGeometry(100.7, 0.9, 4, 72).rotateX(Math.PI / 2), dk(STONE, 1.05), 0, y, 0).scale.z = 0.78
+      for (const [x, z, s] of [[-130, -40, 1.4], [-150, 20, 1.2], [135, -30, 1.5], [160, 30, 1.2], [-115, 70, 1.1]]) umbrellaPine(x, z, s)
+      for (const [x, z] of [[-118, -55], [118, -60], [142, -50]]) cypress(x, z, 1.6)
+      LM.position.z += 50
+    } else if (style.landmark === 'opera') {
+      // tiled shells on a granite podium + the harbour bridge's steel arch off to the left
+      const TILE = '#f6f3ea'
+      B(LM, 200, 16, 110, '#c49a74', 0, 8, 0)
+      B(LM, 90, 3, 20, '#b88f68', 0, 17.5, -44)
+      // a sail = a quarter of a sphere (bulging toward -X, its flat back edge vertical), seen side-on;
+      // pairs stand back to back, stepping down in size along the podium
+      const sail = tint(new SphereGeometry(1, 20, 10, -Math.PI / 2, Math.PI, 0, Math.PI / 2), TILE)
+      const shell = (x, z, s, back, lean) => {
+        const m = mesh(LM, sail, M.frond, x, 16, z, 0, back ? Math.PI : 0, back ? -lean : lean)
+        m.scale.set(s * 0.95, s * 1.45, s * 0.5)
+      }
+      for (const [z, k0, xs] of [[-12, 1.45, [52, 12, -20, -45]], [26, 1.1, [36, 8, -16, -35]]]) {
+        ;[34, 29, 23, 16].forEach((s0, k) => {
+          const s = s0 * k0
+          shell(xs[k], z, s, false, 0.12)
+          shell(xs[k], z, s * 0.62, true, 0.12)
+        })
+      }
+      const STEELB = '#8a929c'
+      const bx = -200
+      const bz = 40
+      P(LM, new TorusGeometry(90, 2.4, 6, 48, Math.PI), STEELB, bx, 0, bz)
+      P(LM, new TorusGeometry(81, 1.6, 6, 48, Math.PI), STEELB, bx, 0, bz)
+      B(LM, 260, 3, 16, '#5d6470', bx, 34, bz)
+      for (let x = -77; x <= 77; x += 11) {
+        const top = Math.sqrt(90 * 90 - x * x)
+        B(LM, 0.8, top - 35, 0.8, STEELB, bx + x, (top + 35) / 2, bz)
+      }
+      for (const s of [-1, 1]) {
+        B(LM, 13, 54, 18, '#c9b38f', bx + s * 98, 27, bz)
+        B(LM, 14, 3, 19, '#b8a07c', bx + s * 98, 54, bz)
+      }
+    } else if (style.landmark === 'burj') {
+      // three wings stepping back around a core in a spiral, then a long spire; towers around it
+      const om = own(new MeshStandardMaterial({ map: tex(paintOffice(11)), roughness: 0.25, metalness: 0.45, color: '#dfe8f2' }))
+      let y = 0
+      const tiers = [[30, 48], [27, 42], [23, 38], [19, 34], [15, 30], [11, 26], [8, 22], [5, 18]]
+      tiers.forEach(([len, h], i) => {
+        P(LM, new CylinderGeometry(len * 0.3, len * 0.32, h, 6), '#dfe6ee', 0, y + h / 2, 0)
+        for (let k = 0; k < 3; k++) {
+          const a = (k * Math.PI * 2) / 3
+          const l = len * (1 - 0.18 * ((i + k) % 3) / 2)
+          const wing = mesh(LM, cubeUV(new BoxGeometry(Math.max(4, 10 - i), h, l), 1 / 6), om, Math.sin(a) * l * 0.5, y + h / 2, Math.cos(a) * l * 0.5)
+          wing.rotation.y = a
+        }
+        y += h
+      })
+      P(LM, pole(3, 0, 70, 8, 0.4), '#e8eef4', 0, y, 0)
+      const om2 = own(new MeshStandardMaterial({ map: tex(paintOffice(5)), roughness: 0.35, metalness: 0.3 }))
+      for (const [x, z, w2, h2] of [[-90, 30, 22, 120], [-130, 70, 18, 90], [-60, 90, 16, 150], [80, 40, 20, 110], [125, 10, 24, 80], [100, 95, 18, 140], [160, 70, 16, 100]]) {
+        mesh(LM, cubeUV(new BoxGeometry(w2, h2, w2), 1 / 6), om2, x, h2 / 2, z)
+        P(LM, new ConeGeometry(w2 * 0.4, 14, 4), '#c8d0dc', x, h2 + 7, z, 0, Math.PI / 4, 0)
+      }
+      LM.position.z += 60
+    } else if (style.landmark === 'christ') {
+      // the statue with open arms on a green peak; the rounded sugarloaf rock beyond
+      const PEAK = 128
+      mountain(-30, 30, 95, PEAK + 2, '#3f7a3a')
+      const sx = -30
+      const sz = 30
+      const STAT = '#ece6d8'
+      B(LM, 7, 9, 7, '#d8d0c0', sx, PEAK - 2, sz)
+      P(LM, pole(3.2, 0, 24, 10, 1.8), STAT, sx, PEAK + 2.5, sz)
+      B(LM, 36, 3.2, 3, STAT, sx, PEAK + 22, sz)
+      P(LM, new SphereGeometry(2.3, 12, 8), STAT, sx, PEAK + 28.5, sz)
+      const rock = tint(new IcosahedronGeometry(1, 2), '#6a7a5a')
+      mesh(LM, rock, M.leaf, 130, 0, 80).scale.set(42, 105, 46)
+      mesh(LM, rock, M.leaf, 190, 0, 60).scale.set(36, 48, 36)
+      mountain(-170, 120, 90, 80, '#4a8a42')
+      LM.position.z += 40
+    } else if (style.landmark === 'windmill') {
+      // a big smock mill (sails turn), a little one, and a brick church tower with a crown
+      const sails = latOf('#efe6d4')
+      const mill = (x, z, s, speed) => {
+        P(LM, new CylinderGeometry(12 * s, 12 * s, 4 * s, 8), '#7a3a2a', x, 2 * s, z)
+        P(LM, new CylinderGeometry(7 * s, 11 * s, 34 * s, 8), '#3a4a3a', x, 4 * s + 17 * s, z)
+        P(LM, new CylinderGeometry(13.5 * s, 13.5 * s, 0.8 * s, 8), '#6a4a32', x, 14 * s, z)
+        P(LM, lathe([[7.6, 0], [7.6, 2], [5.4, 6], [2, 8.6], [0, 9]].map(([r, h]) => [r * s, h * s]), 8), '#5a3a2a', x, 38 * s, z)
+        const hub = new Group()
+        hub.position.set(x, 42 * s, z - 12 * s)
+        dyn.add(hub)
+        P(LM, new CylinderGeometry(0.9 * s, 0.9 * s, 6 * s, 8).rotateX(Math.PI / 2), '#3a2a20', x, 42 * s, z - 9 * s) // axle out of the cap
+        for (let k = 0; k < 4; k++) {
+          const arm = new Group()
+          arm.rotation.z = (k * Math.PI) / 2
+          hub.add(arm)
+          P(arm, new BoxGeometry(0.8 * s, 34 * s, 0.8 * s), '#5a3a2a', 0, 17 * s, 0)
+          mesh(arm, scaleUV(new PlaneGeometry(5 * s, 26 * s), 1, 5), sails, 3 * s, 20 * s, 0)
+        }
+        P(hub, new CylinderGeometry(1.4 * s, 1.4 * s, 3 * s, 8).rotateX(Math.PI / 2), '#3a2a20', 0, 0, 0)
+        spin.push({ o: hub, speed })
+      }
+      mill(0, 20, 1.55, 0.35)
+      mill(110, 70, 0.9, 0.5)
+      const BRICK = '#7a3a2a'
+      B(LM, 14, 50, 14, BRICK, -95, 25, 40)
+      B(LM, 11, 14, 11, '#d8cfc0', -95, 57, 40)
+      P(LM, new CylinderGeometry(4.5, 5, 12, 8), '#d8cfc0', -95, 70, 40)
+      P(LM, lathe([[5, 0], [5.2, 2], [3, 6], [0.6, 12], [0, 13]], 8), '#2a4a7a', -95, 76, 40)
+      Pm(LM, new SphereGeometry(1.1, 8, 6), '#e0b040', -95, 90, 40)
+      B(LM, 40, 26, 30, BRICK, -95, 13, 70)
+      P(LM, prism(30, 16, 40).rotateY(Math.PI / 2), '#3a2e2a', -95, 26, 70)
+      LM.position.z += 20
+    } else if (style.landmark === 'prang') {
+      // a temple's porcelain-studded central prang with four small ones, and a hall with stacked roofs
+      const prang = (x, z, s) => {
+        let y = 0
+        const tiers = [[16, 8], [13.5, 6], [12, 14], [10, 5], [8.6, 12], [7, 5], [5.6, 9], [4.2, 5], [3, 6], [1.8, 5]]
+        tiers.forEach(([r, h], i) => {
+          P(LM, new CylinderGeometry(r * 0.86 * s, r * s, h * s, 8), i % 2 ? '#ece5d4' : '#ddd3bb', x, (y + h / 2) * s, z, 0, Math.PI / 8, 0)
+          P(LM, new CylinderGeometry(r * 0.9 * s, r * 0.92 * s, 0.9 * s, 8), ['#2a8a9a', '#c84a3a', '#e8b83a'][i % 3], x, (y + h) * s, z, 0, Math.PI / 8, 0)
+          y += h
+        })
+        Pm(LM, new ConeGeometry(1.3 * s, 11 * s, 8), '#e8b83a', x, (y + 5.5) * s, z)
+        Pm(LM, pole(0.25 * s, 0, 7 * s, 6), '#e8b83a', x, (y + 11) * s, z)
+      }
+      prang(0, 30, 1.4)
+      for (const [x, z] of [[-62, -6], [62, -6], [-62, 70], [62, 70]]) prang(x, z, 0.62)
+      const hx = -125
+      B(LM, 44, 6, 74, '#f2ede2', hx, 3, 20)
+      B(LM, 34, 14, 62, '#f6f1e6', hx, 13, 20)
+      const roofs = [[46, 16, 68, 20, '#c8502a'], [36, 12, 58, 29, '#2a7a4a'], [26, 9, 48, 36, '#c8502a']]
+      for (const [w2, h2, l2, y2, col] of roofs) {
+        P(LM, prism(w2, h2, l2), col, hx, y2, 20)
+        B(LM, 0.8, 0.8, l2, '#e8b83a', hx, y2 + h2, 20)
+        for (const s of [-1, 1]) Pm(LM, new ConeGeometry(0.6, 6, 6), '#e8b83a', hx, y2 + h2 + 2, 20 + s * l2 * 0.5)
+      }
+      LM.position.z += 40
+    } else if (style.landmark === 'hallgrim') {
+      // a concrete church whose tower steps down like basalt columns; snowy mountains behind
+      const CON = '#c9ccd0'
+      B(LM, 14, 76, 12, CON, 0, 38, 0)
+      for (let i = 1; i <= 7; i++) {
+        const h2 = 76 - i * 9.5
+        for (const s of [-1, 1]) B(LM, 3.6, h2, 10, dk(CON, 1 - i * 0.025), s * (7 + i * 3.6 - 1.8), h2 / 2, 1)
+      }
+      P(LM, new ConeGeometry(7.5, 16, 4), CON, 0, 84, 0, 0, Math.PI / 4, 0)
+      B(LM, 0.6, 6, 0.6, '#9aa0a8', 0, 94, 0)
+      B(LM, 3.4, 0.6, 0.6, '#9aa0a8', 0, 94.5, 0)
+      for (const y of [30, 46, 62]) B(LM, 1.4, 9, 0.3, '#3a4048', 0, y, -6.1)
+      mesh(LM, new CircleGeometry(2.4, 16), M.glass, 0, 70, -6.15, 0, Math.PI, 0)
+      B(LM, 22, 26, 60, CON, 0, 13, 36)
+      P(LM, prism(22, 9, 60), '#8a929c', 0, 26, 36)
+      mountain(-170, 220, 150, 120, '#5a6470', 0.4)
+      mountain(30, 260, 180, 150, '#606a76', 0.45)
+      mountain(220, 230, 140, 110, '#56606c', 0.4)
+      LM.position.z += 30
+    } else if (style.landmark === 'goldengate') {
+      // two art-deco towers, the deck, the main cables' curve, hangers, brown hills behind
+      const RED = '#c8432c'
+      const TX = 90
+      const TOP = 158
+      const DECK = 48
+      for (const tx of [-TX, TX]) {
+        for (const s of [-1, 1]) {
+          B(LM, 8, TOP, 8, RED, tx, TOP / 2, s * 10)
+          B(LM, 5, TOP * 0.6, 5, dk(RED, 0.9), tx, TOP * 0.3, s * 11.2)
+        }
+        for (const y of [DECK + 22, DECK + 46, DECK + 68, TOP - 6]) B(LM, 5, 7, 24, RED, tx, y, 0)
+      }
+      B(LM, 560, 4, 22, RED, 0, DECK, 0)
+      B(LM, 560, 5, 19, dk(RED, 0.75), 0, DECK - 4.4, 0)
+      const cableY = (x) => {
+        const ax = Math.abs(x)
+        if (ax <= TX) return DECK + 6 + (TOP - DECK - 6) * (x / TX) ** 2
+        const t = (ax - TX) / (280 - TX)
+        return TOP + (DECK + 2 - TOP) * t - 10 * Math.sin(Math.PI * t)
+      }
+      for (const s of [-1, 1]) {
+        let px = -280
+        for (let x = -270; x <= 280; x += 10) {
+          beam(px, cableY(px), x, cableY(x), s * 10, 1.4, RED)
+          px = x
+        }
+        for (let x = -270; x <= 270; x += 10) {
+          if (Math.abs(Math.abs(x) - TX) < 4) continue
+          const top = cableY(x)
+          B(LM, 0.35, top - DECK, 0.35, RED, x, (top + DECK) / 2, s * 10)
+        }
+      }
+      for (const tx of [-280, 280]) B(LM, 16, DECK + 4, 30, '#9a9a90', tx, DECK / 2, 0)
+      mountain(-260, 220, 150, 80, '#9a8a5a')
+      mountain(60, 260, 190, 100, '#8a8a58')
+      mountain(300, 200, 140, 70, '#7a8a52')
+      LM.rotation.y = 0.42
+      LM.position.x = 30
+    } else if (style.landmark === 'koutoubia') {
+      // a square red-stone minaret with a lantern and three gilt balls; the snowy Atlas behind
+      const mt = own(new MeshStandardMaterial({ map: tex(paintMinaret()), roughness: 0.9 }))
+      mesh(LM, cubeUV(new BoxGeometry(18, 72, 18), 1 / 9), mt, 0, 36, 0)
+      B(LM, 19, 2.6, 19, '#2a8a6a', 0, 72.6, 0)
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2
+        for (let o = -7.5; o <= 7.6; o += 3.75) B(LM, 1.6, 2.4, 1.6, '#c98a5a', Math.sin(a) * 8.6 + Math.cos(a) * o, 75, Math.cos(a) * 8.6 - Math.sin(a) * o)
+      }
+      mesh(LM, cubeUV(new BoxGeometry(9, 12, 9), 1 / 9), mt, 0, 80, 0)
+      B(LM, 9.8, 1.4, 9.8, '#2a8a6a', 0, 86.4, 0)
+      P(LM, lathe(domePts(4.8, 4.6), 12), '#2a8a6a', 0, 87, 0)
+      Pm(LM, pole(0.3, 0, 12, 6), '#d9a83a', 0, 91, 0)
+      for (const [y, r] of [[94, 1.5], [97.2, 1.2], [99.8, 0.9]]) Pm(LM, new SphereGeometry(r, 10, 8), '#e0b040', 0, y, 0)
+      B(LM, 90, 15, 60, '#d6a06e', 50, 7.5, 34)
+      for (let x = 10; x <= 90; x += 10) P(LM, prism(9, 4, 60), '#2a7a5a', x, 15, 34)
+      for (const [x, z, s] of [[-50, -10, 1], [-70, 20, 1.2], [110, -10, 1.1]]) {
+        P(LM, pole(0.8 * s, 0, 22 * s, 8, 0.6 * s), '#8a6a4a', x, 0, z)
+        mesh(LM, tint(new IcosahedronGeometry(1, 1), '#4a7a3a'), M.leaf, x, 23 * s, z).scale.set(7 * s, 3 * s, 7 * s)
+      }
+      mountain(-190, 300, 190, 140, '#a07656', 0.3)
+      mountain(40, 340, 230, 170, '#9a7050', 0.32)
+      mountain(270, 300, 170, 120, '#a47a5a', 0.28)
+      LM.position.z += 20
+    } else if (style.landmark === 'namsan') {
+      // the tower on its wooded mountain + a palace gate with a two-tier tiled roof
+      mountain(0, 50, 120, 76, '#4a7a3a')
+      const ty = 74
+      P(LM, pole(3.6, 0, 52, 12, 2.4), '#f2f2f2', 0, ty, 50)
+      P(LM, lathe([[2.4, 0], [9, 3], [9.8, 6], [9.4, 10], [7, 13], [2.2, 14]], 16), '#e8e8ea', 0, ty + 50, 50)
+      mesh(LM, new CylinderGeometry(9.9, 9.9, 2.6, 16), M.glass, 0, ty + 57.5, 50)
+      for (let k = 0; k < 5; k++) P(LM, pole(1.3 - k * 0.18, 0, 5, 8, 1.15 - k * 0.18), k % 2 ? '#f4f4f4' : '#d6232e', 0, ty + 64 + k * 5, 50)
+      const gx = -75
+      B(LM, 54, 15, 18, '#b8b0a0', gx, 7.5, -20)
+      for (const ox of [-14, 0, 14]) B(LM, 7, 10, 0.4, '#2a2a2a', gx + ox, 5, -29.1)
+      B(LM, 42, 9, 12, '#a83a2a', gx, 19.5, -20)
+      B(LM, 43, 1.4, 12.6, '#2a7a5a', gx, 23.5, -20)
+      P(LM, prism(20, 7, 56).rotateY(Math.PI / 2), '#3a3f48', gx, 24.2, -20)
+      B(LM, 30, 5, 9, '#a83a2a', gx, 29.5, -20)
+      P(LM, prism(15, 6, 40).rotateY(Math.PI / 2), '#3a3f48', gx, 31.8, -20)
+      mountain(-220, 240, 150, 120, '#6a7060')
+      mountain(200, 270, 170, 130, '#646a5c')
+      LM.position.z += 20
+    } else if (style.landmark === 'angel') {
+      // a tall victory column with a golden winged figure; snow-capped volcanoes far behind
+      const ST = '#e2dccd'
+      const GOLD = '#e0b040'
+      P(LM, rbox(32, 6, 32, 0.4, 1), '#cfc6b4', 0, 3, 0)
+      P(LM, rbox(22, 7, 22, 0.4, 1), '#d8d0c0', 0, 9.5, 0)
+      for (const [x, z] of [[-13, -13], [13, -13], [-13, 13], [13, 13]]) P(LM, rbox(4, 5, 4, 0.3, 1), '#3a3a3a', x, 8.5, z)
+      P(LM, pole(3.4, 13, 76, 16, 2.9), ST, 0, 0, 0)
+      for (const y of [28, 44, 60]) Pm(LM, new TorusGeometry(3.35, 0.45, 6, 16).rotateX(Math.PI / 2), GOLD, 0, y, 0)
+      P(LM, rbox(8, 3, 8, 0.3, 1), ST, 0, 77.5, 0)
+      Pm(LM, pole(1.5, 0, 9, 8, 0.7), GOLD, 0, 79, 0)
+      Pm(LM, new SphereGeometry(1, 8, 6), GOLD, 0, 89, 0)
+      for (const s of [-1, 1]) Pm(LM, new BoxGeometry(0.5, 10, 4), GOLD, s * 2.6, 86, 1.6, 0.35, 0, s * 0.55)
+      Pm(LM, new BoxGeometry(0.4, 6, 0.4), GOLD, 1.2, 91, 0, 0, 0, -0.2)
+      Pm(LM, new TorusGeometry(1.3, 0.25, 6, 14), GOLD, 1.8, 94.5, 0)
+      mountain(-130, 250, 140, 120, '#6a6a70', 0.28)
+      mountain(130, 260, 150, 130, '#706e74', 0.3)
+      LM.scale.setScalar(1.3)
+      LM.position.z += 20
+    } else if (style.landmark === 'table') {
+      // the flat-topped mountain with its tablecloth of cloud, and the peaks either side
+      const mtn = new Shape()
+      mtn.moveTo(-280, 0)
+      mtn.lineTo(-220, 60)
+      mtn.lineTo(-180, 104)
+      mtn.lineTo(-60, 108)
+      mtn.lineTo(80, 110)
+      mtn.lineTo(180, 106)
+      mtn.lineTo(215, 70)
+      mtn.lineTo(280, 0)
+      mtn.closePath()
+      mesh(LM, tint(new ExtrudeGeometry(mtn, { depth: 70, bevelEnabled: false }), '#857e6c'), M.leaf, 0, -1, 60)
+      const foot = new Shape()
+      foot.moveTo(-320, 0)
+      foot.lineTo(-250, 40)
+      foot.lineTo(250, 46)
+      foot.lineTo(320, 0)
+      foot.closePath()
+      mesh(LM, tint(new ExtrudeGeometry(foot, { depth: 40, bevelEnabled: false }), '#5a7a3a'), M.leaf, 0, -1, 40)
+      const cloudGeo = tint(new IcosahedronGeometry(1, 1), '#ffffff')
+      for (let x = -170; x <= 170; x += 26) mesh(LM, cloudGeo, M.leaf, x, 111, 70 + (x % 3) * 4, 0, x, 0).scale.set(22, 6 + Math.abs(Math.sin(x)) * 4, 26)
+      mountain(320, 40, 55, 100, '#7a7464')
+      mountain(-330, 70, 80, 120, '#7a7464')
+      LM.scale.set(1, 1.4, 1)
+      LM.position.z += 40
+    } else if (style.landmark === 'mosque') {
+      // a big lead dome on a drum, half-domes, corner domes and six pencil minarets
+      const ST = '#ddd6c6'
+      const LEAD = '#8a96a4'
+      B(LM, 72, 26, 72, ST, 0, 13, 0)
+      B(LM, 74, 2, 74, dk(ST, 0.9), 0, 26.5, 0)
+      P(LM, new CylinderGeometry(20, 21, 9, 24), ST, 0, 31, 0)
+      P(LM, lathe(domePts(21.5, 17), 24), LEAD, 0, 35.5, 0)
+      Pm(LM, pole(0.4, 0, 8, 6), '#d9a83a', 0, 52, 0)
+      // each half-dome bulges outward (+X before its turn)
+      for (const [x, z, ry] of [[0, -18, Math.PI / 2], [0, 18, -Math.PI / 2], [-18, 0, Math.PI], [18, 0, 0]]) {
+        P(LM, new SphereGeometry(14, 16, 8, Math.PI / 2, Math.PI, 0, Math.PI / 2), LEAD, x, 27, z, 0, ry, 0)
+      }
+      for (const [x, z] of [[-27, -27], [27, -27], [-27, 27], [27, 27]]) {
+        P(LM, new CylinderGeometry(7, 7, 4, 12), ST, x, 28, z)
+        P(LM, lathe(domePts(7.4, 6), 12), LEAD, x, 30, z)
+      }
+      B(LM, 72, 12, 70, ST, 0, 6, 74)
+      const minaret = (x, z) => {
+        P(LM, pole(2.4, 0, 74, 12, 1.8), ST, x, 0, z)
+        for (const y of [36, 52, 66]) P(LM, new CylinderGeometry(3.2, 2.4, 1.4, 12), ST, x, y, z)
+        P(LM, new ConeGeometry(2, 15, 12), LEAD, x, 81.5, z)
+        Pm(LM, pole(0.2, 0, 4, 6), '#d9a83a', x, 89, z)
+      }
+      for (const [x, z] of [[-42, -42], [42, -42], [-42, 34], [42, 34], [-42, 112], [42, 112]]) minaret(x, z)
+      mountain(-200, 160, 110, 40, '#6a8a5a')
+      mountain(220, 180, 120, 46, '#6a8a5a')
+      LM.scale.setScalar(1.5)
+      LM.position.z += 30
+    } else if (style.landmark === 'parthenon') {
+      // a rocky acropolis with the colonnaded temple on top (a few columns long fallen)
+      const MAR = '#e8dfcb'
+      const hill = tint(jag(new CylinderGeometry(78, 104, 46, 12, 2), 0.12, 3), '#c4b48e')
+      mesh(LM, hill, M.leaf, 0, 22, 20)
+      const y0 = 45
+      B(LM, 80, 1.6, 40, dk(MAR, 0.9), 0, y0 + 0.8, 20)
+      B(LM, 76, 2, 36, MAR, 0, y0 + 2.6, 20)
+      const col = tint(pole(1.3, 0, 18, 10, 1.05), MAR)
+      const cap = tint(new BoxGeometry(3, 0.9, 3), MAR)
+      const putCol = (x, z) => {
+        mesh(LM, col, M.paint, x, y0 + 3.6, z)
+        mesh(LM, cap, M.paint, x, y0 + 22, z)
+      }
+      for (let i = 0; i < 17; i++) {
+        const x = -34 + i * 4.25
+        putCol(x, 4.5)
+        if (i !== 5 && i !== 6 && i !== 12) putCol(x, 35.5)
+      }
+      for (let i = 1; i < 7; i++) for (const x of [-34, 34]) putCol(x, 4.5 + i * 4.43)
+      B(LM, 72, 4, 34, MAR, 0, y0 + 24.4, 20)
+      B(LM, 73, 0.8, 35, dk(MAR, 0.92), 0, y0 + 26.6, 20)
+      P(LM, prism(34, 6.5, 72).rotateY(Math.PI / 2), MAR, 0, y0 + 27, 20)
+      for (const [x, z] of [[-60, -10], [65, -5], [-75, 40]]) cypress(x, z, 1.1)
+      LM.rotation.y = -0.38
+      LM.scale.setScalar(1.25)
+      LM.position.z += 30
+    } else if (style.landmark === 'marina') {
+      // three hotel towers under one long sky-park deck, a big wheel (it turns) and glowing supertrees
+      const om = own(new MeshStandardMaterial({ map: tex(paintOffice(17)), roughness: 0.25, metalness: 0.4, color: '#e6eef6' }))
+      for (const x of [-42, 0, 42]) {
+        mesh(LM, cubeUV(new BoxGeometry(24, 120, 16), 1 / 6), om, x, 60, 0)
+        mesh(LM, cubeUV(new BoxGeometry(14, 110, 16), 1 / 6), om, x + 12, 55, 0).rotation.z = -0.06
+      }
+      P(LM, rbox(156, 5, 24, 2, 1), '#eef2f6', 12, 123, 0)
+      B(LM, 156.4, 1.4, 24.4, '#7ab8e0', 12, 125.8, 0)
+      for (let x = -55; x <= 70; x += 14) mesh(LM, tint(new IcosahedronGeometry(1, 0), '#3a8a3a'), M.leaf, x, 127.5, (x % 28 ? 5 : -5)).scale.set(3, 2.6, 3)
+      const wheel = new Group()
+      wheel.position.set(140, 70, 40)
+      dyn.add(wheel)
+      const WH = '#eef2f6'
+      for (const dz of [-2.5, 2.5]) P(wheel, new TorusGeometry(56, 1, 6, 64), WH, 0, 0, dz)
+      for (let k = 0; k < 16; k++) P(wheel, new BoxGeometry(0.6, 112, 0.6), '#c8d0dc', 0, 0, 0, 0, 0, (k * Math.PI) / 16)
+      for (let k = 0; k < 28; k++) {
+        const a = (k / 28) * Math.PI * 2
+        P(wheel, rbox(4, 3, 7, 0.8, 1), '#9ad0f0', Math.cos(a) * 57, Math.sin(a) * 57, 0)
+      }
+      P(wheel, new CylinderGeometry(3, 3, 8, 12).rotateX(Math.PI / 2), '#8a929c', 0, 0, 0)
+      spin.push({ o: wheel, speed: 0.04 })
+      for (const s of [-1, 1]) beam(140 + s * 34, 0, 140, 70, 40 + s * 4, 2.2, '#c8d0dc')
+      const lat = latOf('#8a3a9a')
+      for (const [x, z, h] of [[-130, 30, 42], [-108, 62, 56], [-150, 72, 48], [-92, 18, 36], [-170, 30, 38]]) {
+        mesh(LM, scaleUV(new CylinderGeometry(10, 2.4, h, 10, 1, true), 6, 4), lat, x, h / 2, z)
+        P(LM, pole(2.2, 0, h, 8, 1.6), '#5a2a6a', x, 0, z)
+        mesh(LM, new TorusGeometry(10, 0.5, 4, 24).rotateX(Math.PI / 2), neonMat('#ff6ad8', 1.6), x, h, z)
+      }
+      LM.position.z += 40
+    } else if (style.landmark === 'taj') {
+      // white marble: a plinth, the chamfered hall with iwans, the onion dome, chattris, minarets
+      const MAR = '#f3efe7'
+      const iw = own(new MeshStandardMaterial({ map: tex(paintIwan()), roughness: 0.6 }))
+      B(LM, 120, 7, 120, '#ece4d6', 0, 3.5, 0)
+      P(LM, new CylinderGeometry(36, 36, 38, 8), MAR, 0, 7 + 19, 0, 0, Math.PI / 8, 0)
+      B(LM, 74, 1.2, 74, dk(MAR, 0.94), 0, 45.6, 0)
+      const ap = 36 * Math.cos(Math.PI / 8) + 0.06
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4
+        const big = k % 2 === 0
+        mesh(LM, new PlaneGeometry(big ? 22 : 18, big ? 33 : 30), iw, Math.sin(a) * ap, 7 + (big ? 17.5 : 16), Math.cos(a) * ap, 0, a, 0)
+      }
+      P(LM, new CylinderGeometry(15.5, 15.5, 9, 24), MAR, 0, 50.5, 0)
+      P(LM, lathe(onionPts(17.5, 34), 24), MAR, 0, 55, 0)
+      Pm(LM, pole(0.5, 0, 10, 6), '#d9a83a', 0, 88, 0)
+      for (const [y, r] of [[92, 1.2], [95, 0.9]]) Pm(LM, new SphereGeometry(r, 8, 6), '#d9a83a', 0, y, 0)
+      for (const [x, z] of [[-21, -21], [21, -21], [-21, 21], [21, 21]]) {
+        P(LM, new CylinderGeometry(5.2, 5.2, 6, 8), MAR, x, 49, z)
+        P(LM, lathe(onionPts(5.6, 9), 12), MAR, x, 52, z)
+      }
+      for (const [x, z] of [[-54, -54], [54, -54], [-54, 54], [54, 54]]) {
+        P(LM, pole(2.8, 0, 62, 12, 2.1), MAR, x, 7, z)
+        for (const y of [27, 47, 67]) P(LM, new CylinderGeometry(3.8, 3.1, 1.3, 12), MAR, x, y, z)
+        P(LM, new CylinderGeometry(2.6, 2.6, 4, 8), MAR, x, 71, z)
+        P(LM, lathe(onionPts(3, 5), 10), MAR, x, 73, z)
+      }
+      for (const x of [-30, -18, 18, 30]) cypress(x, -78, 1)
+      LM.scale.setScalar(1.25)
+      LM.position.z += 40
     }
     S.add(LM)
+    dyn.position.copy(LM.position)
+    dyn.rotation.copy(LM.rotation)
 
     // --- Traffic: cars + taxis looping down the lanes; a few parked -----------------------------------
     const cars = []
@@ -1425,7 +2101,7 @@ export function createCity(scene) {
     })
     root.add(baked)
     scene.add(root)
-    built = { root, bodies, trash, cars, doorPanels, door: { x: O.x, z: O.z + tz + 0.3, k: 0 }, style, L1 }
+    built = { root, bodies, trash, cars, doorPanels, door: { x: O.x, z: O.z + tz + 0.3, k: 0 }, style, L1, spin }
     return built
   }
 
@@ -1448,6 +2124,7 @@ export function createCity(scene) {
         if (r.position.z < -2) r.position.z = built.L1 - 12
         for (const w of c.car.wheels) w.rotation.x += (c.speed * dt) / 0.36
       }
+      for (const s of built.spin) s.o.rotation.z += s.speed * dt
       const d = built.door
       d.k += Math.sign((near ? 1 : 0) - d.k) * Math.min(Math.abs((near ? 1 : 0) - d.k), dt * 2)
       const e = d.k * d.k * (3 - 2 * d.k)
