@@ -11,6 +11,7 @@ import { store } from '../store.js'
 import { claimDaily, dailyNow, dailyView, onNetChange, refreshDaily } from '../net.js'
 import { ICON, suitcaseIcon } from './icons.js'
 import { ART, CITY_ART } from './art.js'
+import { postcard } from './scenes.js'
 
 function el(tag, cls, html = '', parent = null) {
   const e = document.createElement(tag)
@@ -255,7 +256,7 @@ export function createWindows({ openWin, closeWin, onAction, toast, big, sfx }) 
       const v = store.data.visited.includes(d.code)
       const c = el('button', `ds-card ${v ? 'visited' : ''}`, '', row1)
       c.type = 'button'
-      const pic = el('div', 'ds-pic', CITY_ART[d.code] ?? '', c)
+      const pic = el('div', 'ds-pic', CITY_ART[d.code] ?? `<img alt="" src="${postcard(d.city)}">`, c)
       if (v) {
         el('span', 'ds-stamp', `${d.code}<small>VISITED</small>`, pic)
         el('span', 'ds-tick', ART.check, c)
@@ -268,6 +269,7 @@ export function createWindows({ openWin, closeWin, onAction, toast, big, sfx }) 
         toast(v ? `You've been to ${d.name}! ✈` : `Pick ${d.name} at the check-in desk and clear security to visit it!`)
       })
     }
+    if (!DEST_SOON.length) return
     const row2 = el('div', 'ds-row soon', '', body)
     for (const d of DEST_SOON) {
       const c = el('div', 'ds-card soon', '', row2)

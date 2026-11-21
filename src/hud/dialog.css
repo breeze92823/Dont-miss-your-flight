@@ -395,8 +395,23 @@ body.dialog-open .hud .hud-bottom {
 }
 .dest-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(40vw, 150px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(26vw, 150px), 1fr));
   gap: 0.8em;
+}
+@media (max-width: 560px) {
+  .dest-row {
+    gap: 0.55em;
+  }
+  .dest .pc {
+    padding: 0.35em 0.35em 0.45em !important;
+  }
+  .dest .pc b {
+    font-size: 1.05em;
+    line-height: 1.1;
+  }
+  .dest .pc small {
+    font-size: 0.78em;
+  }
 }
 .pc {
   display: flex;
@@ -789,6 +804,17 @@ body.dialog-open .hud .hud-bottom {
 /* Landscape phones: the agent panel is compact and its answers sit side by side, so the scene
    above stays visible and it clears the top buttons. */
 @media (max-height: 560px) {
+  /* 21 postcards: smaller cards so two rows show at once */
+  .dest-row {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 0.6em;
+  }
+  .dest .pc b {
+    font-size: 1.15em;
+  }
+  .dest h2 {
+    font-size: 2em;
+  }
   .ap-wrap {
     width: min(86vw, 680px);
     bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);

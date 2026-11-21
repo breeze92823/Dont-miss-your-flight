@@ -15,7 +15,8 @@ import { lineStepClear } from './lineBlockers.js'
 import { setCameraYaw, syncYawToPlayer } from './camera.js'
 import { inputState } from './input.js'
 import { sfx } from './audio.js'
-import { angTo, makePath, syncRemoteLine } from './linepath.js'
+import { angTo, lineTurn, linesOnServer, makePath, myTicket, spotClaimer, syncRemoteLine } from './linepath.js'
+import { skipLineOnServer } from './net.js'
 import { paintEmoji } from './airport/paint.js'
 
 const Y = AIRPORT.walkY
@@ -47,6 +48,8 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
   let pack = null // { mesh, setWorn(on) } from main.js (the player's backpack)
   let arriveIn = 2
   let frontCooldown = 0
+  const turn = lineTurn('security') // online: the server says when it's your turn
+  const matClaim = spotClaimer() // online: the server hands out the search mats
   let chatterIn = 5
   let camRef = null
   const timers = [] // game-time callbacks (setTimeout would stall in a throttled tab)
@@ -187,7 +190,8 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     for (let i = 1; i < PATH.P.length && PATH.cum[i] <= S_JOIN + 0.01; i++) route.push(PATH.P[i])
     walk(npc, route, 3.1, () => joinLine(npc))
   }
-  const freeMat = (z) => mats.filter((m) => !m.busy && !remote?.held(`mat:${mats.indexOf(m)}`)).sort((a, b) => Math.abs(a.z - z) - Math.abs(b.z - z))[0] ?? null
+  const freeMats = (z) => mats.filter((m) => !m.busy && !remote?.held(`mat:${mats.indexOf(m)}`)).sort((a, b) => Math.abs(a.z - z) - Math.abs(b.z - z))
+  const freeMat = (z) => freeMats(z)[0] ?? null
 
   function startLane(npc, lane) {
     lane.busy = true
@@ -313,7 +317,13 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     state.entry = { player: true, s: PATH.project(player.position.x, player.position.z) }
     line.push(state.entry)
     state.leaveHeld = 0
-    sfx('pop')
+    // A short line: no walk through the empty lanes, straight to your spot behind the last one.
+    const target = slotS(line.length - 1)
+    if (target - state.entry.s > QUEUE.shortcut) {
+      state.entry.s = target
+      PATH.at(target, tmp)
+      teleport(tmp.x, tmp.z, tmp.yaw)
+    } else sfx('pop')
     hud.big("You're in line!", 'green', 1.2)
     refreshHud()
   }
@@ -330,7 +340,8 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
   function label(text) {
     D.search.label(text)
   }
-  function goToLane(lane) {
+  const freeLanes = () => open.filter((l) => !l.busy && !remote?.held(`lane:${lanes.indexOf(l)}`))
+  function goToLane(lane, fromBack = false) {
     state.lane = lane
     lane.busy = true
     state.mode = 'turn'
@@ -341,6 +352,8 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
     D.search.show(SEC.skipSearch, skipSearch, { bar: false })
     label("You're up!")
     state.route = [{ x: 58.2, z: lane.z }, { x: SEC.trayX, z: lane.z }]
+    // Called from 2nd / 3rd place: along the last lane to the head of the line first.
+    if (fromBack) state.route.unshift(PATH.at(PATH.total, {}))
   }
   function pickItems() {
     const tags = queue.result?.tags ?? new Set()
@@ -474,8 +487,9 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
       return state.pose
     },
     // NPCs standing in the security line (solid to the player, see lineBlockers.js).
-    lineNpcs(out) {
-      for (const e of line) if (e.npc || e.remote) out.push(e.npc ?? e.remote)
+    // solidOnly: just the bots (real passengers are never solid: the server keeps the order).
+    lineNpcs(out, solidOnly = false) {
+      for (const e of line) if (e.npc || (e.remote && !solidOnly)) out.push(e.npc ?? e.remote)
       return out
     },
     skipLine() {
@@ -486,6 +500,7 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
       state.entry.s = PATH.total
       PATH.at(PATH.total, tmp)
       teleport(tmp.x, tmp.z, tmp.yaw)
+      skipLineOnServer('security')
       refreshHud()
       return true
     },
@@ -547,7 +562,8 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
       }
 
       // Real passengers take their places in the line.
-      if (remote) syncRemoteLine(line, remote.lineMembers('security'), PATH.project, PATH.total)
+      const online = linesOnServer()
+      if (remote) syncRemoteLine(line, remote.lineMembers('security'), PATH.project, PATH.total, online ? myTicket('security') : undefined)
       // Line shuffles forward (never closer than `spacing` to the one ahead, and nobody walks into the player).
       const playerS = PATH.project(player.position.x, player.position.z)
       for (let i = 0; i < line.length; i++) {
@@ -568,11 +584,11 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
         e.npc.speed = Math.abs(ds) / dt
         e.npc.yaw = angTo(e.npc.yaw, tmp.yaw, dt * 7)
       }
-      // Head of the line to a free open lane.
+      // Head of the line to a free open lane (online only bots: the server calls real passengers, below).
       frontCooldown -= dt
       const head = line[0]
-      if (head && !head.remote && frontCooldown <= 0 && head.s >= PATH.total - 0.15) {
-        const free = open.filter((l) => !l.busy && !remote?.held(`lane:${lanes.indexOf(l)}`))
+      if (head && !head.remote && (head.npc || !online) && frontCooldown <= 0 && head.s >= PATH.total - 0.15) {
+        const free = freeLanes()
         if (free.length) {
           const lane = pick(free)
           line.shift()
@@ -583,6 +599,17 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
           } else startLane(head.npc, lane)
           refreshHud()
         }
+      }
+      if (online && state.mode === 'line') {
+        const i = line.indexOf(state.entry)
+        turn.update(dt, line, state.entry, slotS(i), () => freeLanes().map((l) => `lane:${lanes.indexOf(l)}`), (key, place) => {
+          if (state.mode !== 'line') return
+          const k = line.indexOf(state.entry)
+          if (k >= 0) line.splice(k, 1)
+          state.entry = null
+          goToLane(lanes[+key.split(':')[1]] ?? open[0], place > 0)
+          refreshHud()
+        })
       }
       // Walkers.
       for (let i = walkers.length - 1; i >= 0; i--) {
@@ -627,13 +654,17 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
         if (pp.x > JZ.x0 && pp.x < JZ.x1 && pp.z > JZ.z0 && pp.z < JZ.z1) join()
       } else if (state.mode === 'line') {
         const i = line.indexOf(state.entry)
+        if (i !== state.shownAt) {
+          state.shownAt = i // real passengers ahead joined / left: a new Position In Line
+          refreshHud()
+        }
         const real = PATH.project(pp.x, pp.z)
         state.entry.s = Math.min(slotS(i), state.entry.s + QUEUE.autoSpeed * dt, real + 1.6)
         PATH.at(state.entry.s, tmp)
         player.auto = { x: tmp.x, z: tmp.z, speed: QUEUE.autoSpeed, face: tmp.yaw }
         const pushing = Math.hypot(inputState.move.x, inputState.move.z) > 0.5
         state.leaveHeld = pushing ? state.leaveHeld + dt : 0
-        if (state.leaveHeld > 0.35) leaveLine()
+        if (state.leaveHeld > QUEUE.leaveHold) leaveLine()
       } else if (state.mode === 'turn') {
         const p = state.route[0]
         player.auto = { x: p.x, z: p.z, speed: 4 }
@@ -677,9 +708,12 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
           state.mode = 'wait'
         }
       } else if (state.mode === 'wait') {
-        // Off to the nearest vacant search mat (or wait for one).
-        const mat = freeMat(state.lane.z)
-        if (mat) {
+        // Off to the nearest vacant search mat (or wait for one; online the server hands them out).
+        const free = freeMats(state.lane.z)
+        matClaim.update(dt, free.map((m) => `mat:${mats.indexOf(m)}`), (key) => {
+          if (state.mode !== 'wait') return
+          const mat = mats[+key.split(':')[1]]
+          if (!mat) return
           mat.busy = true
           state.mat = mat
           state.mode = 'tomat'
@@ -687,9 +721,10 @@ export function createSecurity({ scene, crowd, hall, interior, fx, hud, store, q
           label('Head to a free search mat...')
           crowd.say(mat.officer, pick(['Over here!', 'This way, please!', 'Beep beep. You know what that means.']), 2.4)
           mat.officer.mode = 'wave'
-        } else {
+        })
+        if (state.mode === 'wait') {
           player.auto = { x: SEC.laneEndX + 0.2, z: state.lane.z, speed: 2 }
-          label('Waiting for a free search area...')
+          if (!free.length) label('Waiting for a free search area...')
         }
       } else if (state.mode === 'tomat') {
         const p = state.route[0]

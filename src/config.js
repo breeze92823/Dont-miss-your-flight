@@ -65,6 +65,13 @@ export const QUEUE = {
   // walks over so everyone sees security keep the line clear.
   stall: { after: 6, moved: 0.3, room: 1.2 },
   autoSpeed: 5.5, // m/s the player is walked to their spot
+  // Online the server keeps every line's order (join tickets, backend lines.ts) and calls passengers
+  // to the desks / lanes / scanner: the first `callDepth` in a line may be called at once (one per free
+  // spot), asked at most every `callEvery` s. (Away / idle real passengers are passed over.)
+  callDepth: 3,
+  callEvery: 0.4,
+  shortcut: 6, // m: joining with your spot this far up an empty stretch of lanes takes you straight there
+  leaveHold: 1.0, // s of pushing the stick to step out of a line (short nudges keep your place)
   securityDoor: { x: 29.2, z: -33 },
   reward: 30, // coins for checking in
 }
@@ -106,9 +113,23 @@ export const DESTINATIONS = [
   { city: 'sydney', name: 'Sydney', country: 'Australia', code: 'SYD', flight: 'SH 6', gate: 21, time: '11:20', color: '#14a3b8' },
   { city: 'cairo', name: 'Cairo', country: 'Egypt', code: 'CAI', flight: 'SH 140', gate: 4, time: '11:40', color: '#b8892a' },
   { city: 'rome', name: 'Rome', country: 'Italy', code: 'FCO', flight: 'SH 55', gate: 18, time: '12:10', color: '#c8542c' },
+  { city: 'rio', name: 'Rio', country: 'Brazil', code: 'GIG', flight: 'SH 360', gate: 2, time: '12:25', color: '#1fae5a' },
+  { city: 'amsterdam', name: 'Amsterdam', country: 'Netherlands', code: 'AMS', flight: 'SH 92', gate: 5, time: '12:40', color: '#ff7a1a' },
+  { city: 'bangkok', name: 'Bangkok', country: 'Thailand', code: 'BKK', flight: 'SH 488', gate: 6, time: '12:55', color: '#e0457b' },
+  { city: 'reykjavik', name: 'Reykjavik', country: 'Iceland', code: 'KEF', flight: 'SH 24', gate: 8, time: '13:10', color: '#3a8fd6' },
+  { city: 'san francisco', name: 'San Francisco', country: 'USA', code: 'SFO', flight: 'SH 501', gate: 10, time: '13:25', color: '#c8402a' },
+  { city: 'marrakech', name: 'Marrakech', country: 'Morocco', code: 'RAK', flight: 'SH 163', gate: 11, time: '13:40', color: '#c0602a' },
+  { city: 'seoul', name: 'Seoul', country: 'South Korea', code: 'ICN', flight: 'SH 279', gate: 13, time: '13:55', color: '#3657c9' },
+  { city: 'mexico city', name: 'Mexico City', country: 'Mexico', code: 'MEX', flight: 'SH 344', gate: 14, time: '14:10', color: '#2a9a6a' },
+  { city: 'cape town', name: 'Cape Town', country: 'South Africa', code: 'CPT', flight: 'SH 417', gate: 16, time: '14:25', color: '#6a8a3a' },
+  { city: 'istanbul', name: 'Istanbul', country: 'Turkey', code: 'IST', flight: 'SH 233', gate: 17, time: '14:40', color: '#c22a3a' },
+  { city: 'athens', name: 'Athens', country: 'Greece', code: 'ATH', flight: 'SH 186', gate: 19, time: '14:55', color: '#2a6ad6' },
+  { city: 'singapore', name: 'Singapore', country: 'Singapore', code: 'SIN', flight: 'SH 58', gate: 20, time: '15:10', color: '#d63a4a' },
+  { city: 'agra', name: 'Agra', country: 'India', code: 'AGR', flight: 'SH 615', gate: 22, time: '15:25', color: '#8a5ad6' },
 ]
-// The five postcards the desk agent offers ("Where to?"), as DESTINATIONS indices.
-export const FEATURED_DESTINATIONS = [4, 0, 3, 1, 6]
+// The postcards the desk agent offers ("Where to?"), in order, as DESTINATIONS indices: every city.
+// Each one can be visited and counts toward the Destinations window / Places Visited board.
+export const FEATURED_DESTINATIONS = [4, 0, 3, 1, 6, 7, 5, 2, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 export const HOME_AIRPORT = { code: 'SKY', name: 'Skyport' }
 
 // --- Check-in desk conversation (checkin.js) ------------------------------------------
@@ -408,6 +429,24 @@ export const CITIES = {
   CDG: { name: 'Paris', walls: ['#eadcc0', '#e4d3b1', '#efe4cc', '#ddc9a5', '#e8dbc0'], trim: '#f7f1e3', roof: 'mansard', fireEscapes: false, balconies: true, shops: ['café', 'boulangerie', 'fleurs', 'fromagerie', 'crêpes', 'librairie', 'pâtisserie', 'bistro'], awnings: ['#b3202a', '#1f3f7a', '#2a6a3a', '#7a1f4a'], taxi: '#f5f5f5', bus: null, landmark: 'eiffel', sidewalk: '#d8d0c0', tree: '#4c9640' },
   HND: { name: 'Tokyo', walls: ['#d9dde3', '#b7bec9', '#f0eee8', '#9aa3b0', '#e6e1d6', '#c8ccd2'], trim: '#ffffff', roof: 'signs', fireEscapes: false, neon: true, shops: ['ramen', 'sushi', 'arcade', 'konbini', 'karaoke', 'manga', 'tea', 'bento'], awnings: ['#d6232e', '#1b1d22', '#ff6fa8', '#2a8a4a'], taxi: '#2d7a4a', bus: null, landmark: 'tower', vending: true, sidewalk: '#cfd2d6', tree: '#4f9a4a' },
   CAI: { name: 'Cairo', walls: ['#d9b77f', '#c99b5c', '#e4c995', '#b88a52', '#e8d3a6'], trim: '#f2e3c0', roof: 'terrace', fireEscapes: false, arches: true, shops: ['bazaar', 'spices', 'tea house', 'souvenirs', 'falafel', 'lamps', 'carpets', 'juice'], awnings: ['#2a6a9a', '#b3202a', '#2a7a4a', '#c8782a'], taxi: '#f2f2f2', bus: null, landmark: 'pyramids', palms: true, sidewalk: '#e2cfa8', tree: '#5a9a3a' },
+  // Optional street flags (city.js): roof 'tiles' (hipped, `roofCol`) / 'gable' (front gables), `classicLamps`,
+  // `lanterns` (+ `lanternCol`), `shutters` (colour), `corrugated` walls, `snow`, `pines`, `bikes`, `waves` paving.
+  FCO: { name: 'Rome', walls: ['#d9a066', '#c9824e', '#e3b779', '#b8653a', '#e8c690', '#cf8f5a'], trim: '#f1e4c8', roof: 'tiles', roofCol: '#b5562e', balconies: true, classicLamps: true, shops: ['gelato', 'trattoria', 'espresso', 'pizzeria', 'pasta', 'leather', 'farmacia', 'vino'], awnings: ['#2a5c3a', '#7a1f2a', '#c8782a', '#1b3d6b'], taxi: '#f4f4f0', bus: null, landmark: 'colosseum', sidewalk: '#d6c8ae', tree: '#4a7a34' },
+  SYD: { name: 'Sydney', walls: ['#e8d8bc', '#c87a4a', '#f0e6d2', '#a8583a', '#e2cfa8', '#d9e2e8'], trim: '#ffffff', roof: 'tiles', roofCol: '#9a3a2a', balconies: true, shops: ['meat pies', 'surf shop', 'flat white', 'fish & chips', 'milk bar', 'opals', 'bakery', 'books'], awnings: ['#1b6fa8', '#2a8a6a', '#e8a03a', '#c8402a'], taxi: '#f2f2f2', bus: null, landmark: 'opera', sidewalk: '#d4cfc4', tree: '#5a8a4a' },
+  DXB: { name: 'Dubai', walls: ['#efe4cc', '#e2d2b0', '#f4ecdc', '#d8c49c', '#ebe0c6'], trim: '#fbf6ea', roof: 'terrace', arches: true, shutters: '#8a5a2a', palms: true, shops: ['gold souk', 'perfume', 'shawarma', 'dates', 'spices', 'karak tea', 'textiles', 'juice'], awnings: ['#c8962a', '#2a6a9a', '#7a1f2a', '#2a7a5a'], taxi: '#f2ead8', bus: null, landmark: 'burj', sidewalk: '#e8dcc0', tree: '#4f8a3a' },
+  GIG: { name: 'Rio', walls: ['#f2d24a', '#5fc4b0', '#f28aa0', '#9ad0f0', '#f4a85a', '#b8e07a'], trim: '#ffffff', roof: 'tiles', roofCol: '#c8643a', balconies: true, palms: true, waves: true, shops: ['açaí', 'churrasco', 'samba', 'juice bar', 'havaianas', 'coconuts', 'padaria', 'surf'], awnings: ['#1fae5a', '#ffd23b', '#2a62d8', '#ff6a3a'], taxi: '#ffcc12', bus: null, landmark: 'christ', sidewalk: '#f4f1ea', tree: '#3f8f3a' },
+  AMS: { name: 'Amsterdam', walls: ['#5a2e22', '#3a2a24', '#7a3a2a', '#2e3a3a', '#6a4a3a', '#4a2a1e'], trim: '#f4f1ea', roof: 'gable', roofCol: '#6a564e', railings: true, classicLamps: true, bikes: true, shops: ['stroopwafels', 'cheese', 'tulips', 'frites', 'bike rental', 'café', 'pancakes', 'books'], awnings: ['#ff7a1a', '#1b3d6b', '#7a1f2a', '#2a6a3a'], taxi: '#2b2f3a', bus: null, landmark: 'windmill', sidewalk: '#b0806a', tree: '#4a8a3a' },
+  BKK: { name: 'Bangkok', walls: ['#e8dcc4', '#c9d6c8', '#e6c9a8', '#b8c4cc', '#f0e0b8', '#d4b8a8'], trim: '#f7f1e3', roof: 'signs', lanterns: true, lanternCol: '#ffb31a', palms: true, shops: ['pad thai', 'mango sticky rice', 'massage', 'noodles', 'tuk-tuk tours', 'silk', 'thai tea', 'street food'], awnings: ['#e0457b', '#2a8a6a', '#ffb31a', '#2a62d8'], taxi: '#ff5fa2', bus: null, landmark: 'prang', sidewalk: '#cfc8bc', tree: '#3f8f3a' },
+  KEF: { name: 'Reykjavik', walls: ['#d6232e', '#f2c230', '#2a8ad6', '#f4f4f0', '#3aaa6a', '#2a3a4a'], trim: '#ffffff', roof: 'tiles', roofCol: '#2a3a4a', corrugated: true, snow: true, pines: true, shops: ['hot dogs', 'wool sweaters', 'fish soup', 'bakery', 'puffins', 'skyr', 'records', 'hot springs'], awnings: ['#1b3d6b', '#d6232e', '#2a6a3a', '#1b1d22'], taxi: '#f2f2f2', bus: null, landmark: 'hallgrim', sidewalk: '#e6eaee', tree: '#2f5a3a' },
+  SFO: { name: 'San Francisco', walls: ['#f2c6d4', '#a8d4e8', '#f4e2a8', '#c8e0b0', '#e8b89a', '#d4c4e8'], trim: '#ffffff', roof: 'gable', roofCol: '#4a4a5a', shops: ['sourdough', 'clam chowder', 'cable car gifts', 'burritos', 'coffee', 'chocolate', 'vintage', 'books'], awnings: ['#c8402a', '#1b3d6b', '#2a6a3a', '#e8a03a'], taxi: '#f2f2f2', bus: null, landmark: 'goldengate', sidewalk: '#cfcac0', tree: '#4a8a3a' },
+  RAK: { name: 'Marrakech', walls: ['#d4785a', '#c96a4a', '#e08a66', '#b85a3e', '#dc9070'], trim: '#f0d8c0', roof: 'terrace', arches: true, shutters: '#2a7a5a', palms: true, lanterns: true, lanternCol: '#ffb84a', shops: ['souk', 'spices', 'lanterns', 'rugs', 'tagine', 'mint tea', 'leather', 'argan oil'], awnings: ['#2a7a5a', '#c8962a', '#2a4a9a', '#b3202a'], taxi: '#e8d8a8', bus: null, landmark: 'koutoubia', sidewalk: '#e0b898', tree: '#5a8a3a' },
+  ICN: { name: 'Seoul', walls: ['#dcdfe4', '#c4cad2', '#ece8e0', '#a8b0bc', '#e4ddd2'], trim: '#ffffff', roof: 'flat', neon: true, shops: ['kimchi', 'bibimbap', 'k-pop', 'fried chicken', 'tteokbokki', 'cosmetics', 'bubble tea', 'pc bang'], awnings: ['#3657c9', '#d6232e', '#ff6fa8', '#2a8a4a'], taxi: '#f28a2a', bus: null, landmark: 'namsan', sidewalk: '#d2d4d8', tree: '#f2a6c4' },
+  MEX: { name: 'Mexico City', walls: ['#e86a8a', '#f2b43a', '#3ab0c8', '#f4e8d4', '#c8402a', '#7ac46a'], trim: '#f6efe0', roof: 'terrace', balconies: true, shops: ['tacos', 'churros', 'tortas', 'mercado', 'paletas', 'elotes', 'piñatas', 'café'], awnings: ['#2a9a6a', '#e8452c', '#ff6fa8', '#2a62d8'], taxi: '#f06a9a', bus: null, landmark: 'angel', sidewalk: '#d4ccbc', tree: '#9a7ad6' },
+  CPT: { name: 'Cape Town', walls: ['#4ab0e8', '#f2d03a', '#f28ab0', '#7ac45a', '#f48a3a', '#b48ae8'], trim: '#ffffff', roof: 'flat', palms: true, shops: ['biltong', 'braai', 'bobotie', 'surf', 'craft market', 'coffee', 'rooibos', 'books'], awnings: ['#2a6a3a', '#1b3d6b', '#c8402a', '#e8a03a'], taxi: '#f2f2f2', bus: null, landmark: 'table', sidewalk: '#cfc8b8', tree: '#4a8a3a' },
+  IST: { name: 'Istanbul', walls: ['#e8d8c0', '#c99a7a', '#d4b8a0', '#b8a088', '#e6cfb0', '#a87a5a'], trim: '#f4ece0', roof: 'tiles', roofCol: '#a8502e', classicLamps: true, shops: ['kebab', 'baklava', 'turkish delight', 'çay', 'bazaar', 'simit', 'carpets', 'lamps'], awnings: ['#c22a3a', '#1b3d6b', '#2a6a5a', '#c8962a'], taxi: '#ffcc12', bus: null, landmark: 'mosque', sidewalk: '#cfc6b6', tree: '#4a8a3a' },
+  ATH: { name: 'Athens', walls: ['#f4f2ec', '#e8e4da', '#f0ece2', '#dcd6c8'], trim: '#ffffff', roof: 'terrace', shutters: '#2a6ad6', shops: ['gyros', 'souvlaki', 'olive oil', 'bakery', 'sandals', 'honey', 'pottery', 'frappé'], awnings: ['#2a6ad6', '#1b3d6b', '#c8962a', '#2a7a5a'], taxi: '#ffcc12', bus: null, landmark: 'parthenon', sidewalk: '#e2ddd0', tree: '#7a9a5a' },
+  SIN: { name: 'Singapore', walls: ['#f4c4b0', '#b8e0d0', '#f4e0a0', '#c8d4f0', '#f0b8c8', '#d4ecc0'], trim: '#ffffff', roof: 'tiles', roofCol: '#b8552e', shutters: '#2a7a6a', lanterns: true, lanternCol: '#ff3a2a', palms: true, shops: ['chicken rice', 'laksa', 'satay', 'kaya toast', 'durian', 'bubble tea', 'hawker centre', 'chili crab'], awnings: ['#d63a4a', '#2a8a6a', '#e8a03a', '#3657c9'], taxi: '#2a62d8', bus: null, landmark: 'marina', sidewalk: '#d6d0c8', tree: '#3a8a3a' },
+  AGR: { name: 'Agra', walls: ['#e8b88a', '#d89a6a', '#f0d0a8', '#c88a5a', '#e6c4a0'], trim: '#f6eadc', roof: 'terrace', arches: true, shutters: '#2a6a8a', shops: ['chai', 'samosas', 'marble crafts', 'lassi', 'sweets', 'spices', 'saris', 'petha'], awnings: ['#e8452c', '#2a8a6a', '#e8a03a', '#7a2a8a'], taxi: '#f2c230', bus: null, landmark: 'taj', sidewalk: '#dcc8a8', tree: '#4a8a3a' },
 }
 
 // --- Opening cutscene (cutscene.js) ------------------------------------------------
@@ -722,14 +761,9 @@ export const SHOP = {
   ],
 }
 
-// --- Destinations window: the desk's five postcards can be visited; a destination counts as visited
-// once you clear security on a flight there. The rest are "coming soon".
-export const DEST_SOON = [
-  { name: 'Rome', country: 'Italy', code: 'FCO' },
-  { name: 'Sydney', country: 'Australia', code: 'SYD' },
-  { name: 'Rio', country: 'Brazil', code: 'GIG' },
-  { name: 'Dubai', country: 'UAE', code: 'DXB' },
-]
+// --- Destinations window: every desk postcard can be visited; a destination counts as visited once
+// you clear security on a flight there. Anything listed here shows as "coming soon" (none right now).
+export const DEST_SOON = []
 
 // --- Tools (tools.js): hotbar items, used on whoever is under the crosshair ------------------------
 export const TOOLS = {
@@ -808,6 +842,7 @@ export const REMOTE = {
   maxDrawn: 24, // full avatars drawn at once (the nearest)
   tagDist: 26, // m: name tags shown this close
   aliveEvery: 1, // s between `alive` beats from the game loop (no beat for 5 s = away for the others)
+  activeEvery: 2, // s between `active` messages while the player gives input (none for 60 s = idle: passed over in lines)
 }
 // --- Bloxity ads (bloxity.js): rewarded ad for coins (verified by the backend), the results screen
 // ad shown on landing. Coins per ad = the backend's AD_REWARD_COINS.

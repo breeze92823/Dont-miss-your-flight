@@ -10,8 +10,9 @@
 // arrival city only shows passengers who landed in the same city (same zone + destination).
 //
 // The lines: a passenger standing in the check-in / security / boarding line takes a place in every
-// client's copy of that line (queue.js, security.js, boarding.js read `lineMembers`), and the desk /
-// lane / mat / scanner they use is held (`holds`) so no one else is sent to it. Bot passengers fill
+// client's copy of that line (queue.js, security.js, boarding.js read `lineMembers`; online in the
+// server's ticket order), and the desk / lane / mat / scanner they use is held (`holds`) so no one
+// else is sent to it (an idle passenger's spot isn't). Bot passengers fill
 // in only if PASSENGERS.bots is on, and then only while there are few real ones (`botShare`).
 import { Group, Vector3 } from 'three'
 import { DESTINATIONS, PASSENGERS, PLAYER_DIMS, REMOTE, SUITCASES } from './config.js'
@@ -48,7 +49,7 @@ export function createRemotePassengers({ scene, crowd, me }) {
   // Name tag text: in the cabin it adds where they're flying to ("Bob · Tokyo").
   function tagText(s) {
     const to = s.zone === 'cabin' ? DESTINATIONS[s.dest]?.name : ''
-    return `${s.vip ? '★ ' : ''}${s.username || 'Passenger'}${to ? ` · ${to}` : ''}${s.away ? ' (away)' : ''}`
+    return `${s.vip ? '★ ' : ''}${s.username || 'Passenger'}${to ? ` · ${to}` : ''}${s.away ? ' (away)' : s.idle ? ' (idle)' : ''}`
   }
 
   // --- One passenger -----------------------------------------------------------------------------
@@ -57,7 +58,7 @@ export function createRemotePassengers({ scene, crowd, me }) {
     group.rotation.order = 'YXZ'
     group.visible = false
     scene.add(group)
-    const tag = label(tagText(s), 0.32, { color: s.away ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
+    const tag = label(tagText(s), 0.32, { color: s.away || s.idle ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
     tag.visible = false
     tag.renderOrder = 19
     scene.add(tag)
@@ -254,7 +255,7 @@ export function createRemotePassengers({ scene, crowd, me }) {
       scene.remove(p.tag)
       p.tag.material.map?.dispose()
       p.tag.material.dispose()
-      p.tag = label(text, 0.32, { color: s.away ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
+      p.tag = label(text, 0.32, { color: s.away || s.idle ? '#a9b2c2' : s.vip ? '#ffd23f' : '#ffffff' })
       p.tag.renderOrder = 19
       scene.add(p.tag)
     }
@@ -324,9 +325,10 @@ export function createRemotePassengers({ scene, crowd, me }) {
         }
         // Shared lines and held spots (airport only). Away passengers (their game stopped) hold nothing:
         // nobody waits behind them.
+        // Idle ones (no input for a minute) keep their place in line but hold no spot.
         if (s.zone === 'airport' && !s.away) {
           if (lines[s.line]) lines[s.line].push(p)
-          if (s.hold) holds.add(s.hold)
+          if (s.hold && !s.idle) holds.add(s.hold)
         }
         const d = Math.hypot(p.x - camPos.x, p.z - camPos.z)
         if (d > REMOTE.drawDist) {
@@ -347,7 +349,8 @@ export function createRemotePassengers({ scene, crowd, me }) {
         p.tag.position.set(p.x, p.y + PLAYER_DIMS.height + 0.45, p.z)
       }
     },
-    // Real passengers standing in `kind` line (checkin | security | boarding): [{ sid, x, y, z }].
+    // Real passengers standing in `kind` line (checkin | security | boarding): [{ x, y, z, state }]
+    // (state.ticket = their place in the server's order, state.idle = passed over).
     lineMembers: (kind) => lines[kind] ?? [],
     // Spots in use by real passengers: "desk:N", "lane:N", "mat:N", "scan".
     held: (key) => holds.has(key),

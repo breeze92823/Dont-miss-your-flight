@@ -11,7 +11,8 @@ import { AIRPORT, DESTINATIONS, QUEUE, QUESTIONS } from './config.js'
 import { runCheckin } from './checkin.js'
 import { player, resetPlayer } from './player.js'
 import { lineStepClear } from './lineBlockers.js'
-import { syncRemoteLine } from './linepath.js'
+import { lineTurn, linesOnServer, myTicket, syncRemoteLine } from './linepath.js'
+import { skipLineOnServer } from './net.js'
 import { syncYawToPlayer } from './camera.js'
 import { inputState } from './input.js'
 import { sfx } from './audio.js'
@@ -122,6 +123,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
     destIndex: 0,
   }
   let frontCooldown = 0
+  const turn = lineTurn('checkin') // online: the server says when it's your turn
   let arriveIn = 1
   let chatterIn = 4
 
@@ -196,7 +198,13 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
     state.entry = { player: true, s: project(player.position.x, player.position.z) }
     line.push(state.entry)
     state.leaveHeld = 0
-    sfx('pop')
+    // A short line: no walk through the empty lanes, straight to your spot behind the last one.
+    const target = slotS(line.length - 1)
+    if (target - state.entry.s > QUEUE.shortcut) {
+      state.entry.s = target
+      at(target, tmp)
+      teleport(tmp.x, tmp.z, tmp.yaw)
+    } else sfx('pop')
     hud.big("You're in line!", 'green', 1.2)
     hud.prompt(null)
     refreshHud()
@@ -217,7 +225,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
     fx.sparkle(x, Y + 1, z, { count: 24, color: '#7cf0ff', speed: 4 })
     sfx('whoosh', { vol: 0.5, dur: 0.4 })
   }
-  function goToDesk(desk, viaRoute) {
+  function goToDesk(desk, viaRoute, fromBack = false) {
     state.desk = desk
     desk.busy = true
     state.mode = 'turn'
@@ -225,7 +233,10 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
     hud.big('YOUR TURN!', 'gold', 1.6)
     sfx('fanfare')
     state.route = viaRoute ? [{ x: 12, z: -34.2 }, { x: desk.cust.x, z: -35.6 }, { x: desk.cust.x, z: desk.cust.z }] : [{ x: desk.cust.x, z: desk.cust.z }]
+    // Called from 2nd / 3rd place: up the last lane to the head of the line first.
+    if (fromBack) state.route.unshift(at(TOTAL, {}))
   }
+  const freeDesks = () => desks.filter((d) => !d.busy && !remote?.held(`desk:${d.index}`))
   function arriveDesk() {
     state.mode = 'desk'
     const d = state.desk
@@ -301,8 +312,9 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       return (state.mode === 'turn' || state.mode === 'desk') && state.desk ? `desk:${state.desk.index}` : ''
     },
     // NPCs standing in the check-in line (solid to the player, see lineBlockers.js).
-    lineNpcs(out) {
-      for (const e of line) if (e.npc || e.remote) out.push(e.npc ?? e.remote)
+    // solidOnly: just the bots (real passengers are never solid: the server keeps the order).
+    lineNpcs(out, solidOnly = false) {
+      for (const e of line) if (e.npc || (e.remote && !solidOnly)) out.push(e.npc ?? e.remote)
       return out
     },
     skipLine() {
@@ -313,6 +325,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       state.entry.s = TOTAL
       at(TOTAL, tmp)
       teleport(tmp.x, tmp.z, tmp.yaw)
+      skipLineOnServer('checkin')
       // Whoever stood at the front shuffles back one place (they don't teleport).
       refreshHud()
       return true
@@ -324,7 +337,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
         if (i >= 0) line.splice(i, 1)
         state.entry = null
       }
-      const free = desks.filter((d) => !d.busy && !remote?.held(`desk:${d.index}`))
+      const free = freeDesks()
       const desk = free.length ? free[Math.floor(Math.random() * free.length)] : desks[desks.length - 1]
       teleport(desk.cust.x, desk.cust.z + 1.2, Math.PI)
       goToDesk(desk, false)
@@ -357,7 +370,8 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       }
 
       // --- Real passengers take their places in the line ---
-      if (remote) syncRemoteLine(line, remote.lineMembers('checkin'), project, TOTAL)
+      const online = linesOnServer()
+      if (remote) syncRemoteLine(line, remote.lineMembers('checkin'), project, TOTAL, online ? myTicket('checkin') : undefined)
 
       // --- Line shuffles forward ---
       // (never closer than `spacing` to the one ahead, and nobody walks into the player)
@@ -384,10 +398,11 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
       }
 
       // --- Head of the line goes to a free desk ---
+      // (online only bots are sent from here: the server calls the real passengers, below)
       frontCooldown -= dt
       const head = line[0]
-      if (head && !head.remote && frontCooldown <= 0 && head.s >= TOTAL - 0.15) {
-        const free = desks.filter((d) => !d.busy && !remote?.held(`desk:${d.index}`))
+      if (head && !head.remote && (head.npc || !online) && frontCooldown <= 0 && head.s >= TOTAL - 0.15) {
+        const free = freeDesks()
         if (free.length && (!head.player || state.mode === 'line')) {
           const desk = free[Math.floor(Math.random() * free.length)]
           line.shift()
@@ -398,6 +413,17 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
           } else startServe(head.npc, desk)
           refreshHud()
         }
+      }
+      if (online && state.mode === 'line') {
+        const i = line.indexOf(state.entry)
+        turn.update(dt, line, state.entry, slotS(i), () => freeDesks().map((d) => `desk:${d.index}`), (key, place) => {
+          if (state.mode !== 'line') return
+          const k = line.indexOf(state.entry)
+          if (k >= 0) line.splice(k, 1)
+          state.entry = null
+          goToDesk(desks[+key.split(':')[1]] ?? desks[0], true, place > 0)
+          refreshHud()
+        })
       }
 
       // --- Free walkers ---
@@ -500,6 +526,10 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
         if (pp.x > JZ.x0 && pp.x < JZ.x1 && pp.z > JZ.z0 && pp.z < JZ.z1 && suitcase.state === 'follow') join()
       } else if (state.mode === 'line') {
         const i = line.indexOf(state.entry)
+        if (i !== state.shownAt) {
+          state.shownAt = i // real passengers ahead joined / left: a new Position In Line
+          refreshHud()
+        }
         const target = slotS(i)
         // The carrot runs ahead of the player along the lanes, never far ahead.
         const real = project(pp.x, pp.z)
@@ -509,7 +539,7 @@ export function createQueue({ scene, crowd, interior, fx, suitcase, hud, store, 
         // Pushing the stick for a moment steps out of line.
         const pushing = Math.hypot(inputState.move.x, inputState.move.z) > 0.5
         state.leaveHeld = pushing ? state.leaveHeld + dt : 0
-        if (state.leaveHeld > 0.35) leaveLine()
+        if (state.leaveHeld > QUEUE.leaveHold) leaveLine()
       } else if (state.mode === 'turn') {
         const p = state.route[0]
         player.auto = { x: p.x, z: p.z, speed: 4.5 }

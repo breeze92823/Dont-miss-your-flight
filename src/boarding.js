@@ -13,7 +13,8 @@ import { lineStepClear } from './lineBlockers.js'
 import { syncYawToPlayer } from './camera.js'
 import { inputState } from './input.js'
 import { sfx, turbineLoop } from './audio.js'
-import { angTo, makePath, syncRemoteLine } from './linepath.js'
+import { angTo, lineTurn, linesOnServer, makePath, myTicket, syncRemoteLine } from './linepath.js'
+import { skipLineOnServer } from './net.js'
 import { seating, sit, standUp } from './seating.js'
 import { floatText, fmtClock as clock } from './airport/gates.js'
 
@@ -51,6 +52,7 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
   let jetSound = null
   let scanBusy = false
   let serveIn = 0
+  const turn = lineTurn('boarding') // online: the server says when it's your turn at the scanner
   let extraIn = 0
   let extraLeft = 0
   let corridorIn = 2
@@ -405,7 +407,13 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
     st.entry = { player: true, s: LINE.project(player.position.x, player.position.z) }
     line.push(st.entry)
     st.leaveHeld = 0
-    sfx('pop')
+    // A short line: no walk through the empty lanes, straight to your spot behind the last one.
+    const target = slotS(line.length - 1)
+    if (target - st.entry.s > QUEUE.shortcut) {
+      st.entry.s = target
+      LINE.at(target, tmp)
+      teleport(tmp.x, tmp.z, tmp.yaw)
+    } else sfx('pop')
     hud.big("You're in line!", 'green', 1.2)
     refreshHud()
   }
@@ -587,8 +595,9 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
       return { prompt: null, hint: null }
     },
     // NPCs standing in the boarding line (solid to the player, see lineBlockers.js).
-    lineNpcs(out) {
-      for (const e of line) if (e.npc || e.remote) out.push(e.npc ?? e.remote)
+    // solidOnly: just the bots (real passengers are never solid: the server keeps the order).
+    lineNpcs(out, solidOnly = false) {
+      for (const e of line) if (e.npc || (e.remote && !solidOnly)) out.push(e.npc ?? e.remote)
       return out
     },
     // For the other passengers (net trip): standing in this line / at the scanner.
@@ -606,6 +615,7 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
       st.entry.s = LINE.total
       LINE.at(LINE.total, tmp)
       teleport(tmp.x, tmp.z, tmp.yaw)
+      skipLineOnServer('boarding')
       refreshHud()
       return true
     },
@@ -749,7 +759,8 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
         }
       }
       // Real passengers take their places in the line.
-      if (remote) syncRemoteLine(line, remote.lineMembers('boarding'), LINE.project, LINE.total)
+      const online = linesOnServer()
+      if (remote) syncRemoteLine(line, remote.lineMembers('boarding'), LINE.project, LINE.total, online ? myTicket('boarding') : undefined)
       // Line shuffles forward (never closer than `spacing` to the one ahead, and nobody walks into the player).
       const playerS = LINE.project(player.position.x, player.position.z)
       for (let i = 0; i < line.length; i++) {
@@ -772,12 +783,25 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
       }
       serveIn -= dt
       const head = line[0]
-      if (head && !head.remote && !remote?.held('scan') && serveIn <= 0 && !scanBusy && head.s >= LINE.total - 0.2 && st.mode !== 'gate' && st.mode !== 'scan') {
+      const scanFree = !remote?.held('scan') && !scanBusy && st.mode !== 'gate' && st.mode !== 'scan'
+      // (online only bots are sent from here: the server calls the real passengers, below)
+      if (head && !head.remote && (head.npc || !online) && scanFree && serveIn <= 0 && head.s >= LINE.total - 0.2) {
         line.shift()
         serveIn = 1.6
         if (head.player) goTurn()
         else serveNpc(head.npc)
         refreshHud()
+      }
+      if (online && st.mode === 'line') {
+        const i = line.indexOf(st.entry)
+        turn.update(dt, line, st.entry, slotS(i), () => (scanFree && serveIn <= 0 ? ['scan'] : []), () => {
+          if (st.mode !== 'line') return
+          const k = line.indexOf(st.entry)
+          if (k >= 0) line.splice(k, 1)
+          serveIn = 1.6
+          goTurn()
+          refreshHud()
+        })
       }
 
       // --- The player ---
@@ -788,13 +812,17 @@ export function createBoarding({ scene, crowd, gates, secHall, hud, store, queue
         if (!seating.active && inRect(pp.x, pp.z, jz.x0, jz.x1, jz.z0, jz.z1)) join()
       } else if (st.mode === 'line') {
         const i = line.indexOf(st.entry)
+        if (i !== st.shownAt) {
+          st.shownAt = i // real passengers ahead joined / left: a new Position In Line
+          refreshHud()
+        }
         const real = LINE.project(pp.x, pp.z)
         st.entry.s = Math.min(slotS(i), st.entry.s + QUEUE.autoSpeed * dt, real + 1.6)
         LINE.at(st.entry.s, tmp)
         player.auto = { x: tmp.x, z: tmp.z, speed: QUEUE.autoSpeed, face: tmp.yaw }
         const pushing = Math.hypot(inputState.move.x, inputState.move.z) > 0.5
         st.leaveHeld = pushing ? st.leaveHeld + dt : 0
-        if (st.leaveHeld > 0.35) leaveLine()
+        if (st.leaveHeld > QUEUE.leaveHold) leaveLine()
       } else if (st.mode === 'turn') {
         if (!scanBusy || st.route.length > 1) {
           const p = st.route[0]
