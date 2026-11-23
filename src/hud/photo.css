@@ -1,0 +1,245 @@
+/* Phase 4: photo mode (photo.js). The HUD + touch controls hide; the overlay takes every pointer. */
+.hud.photo-mode > :not(.photo-ui):not(.big):not(.toasts):not(.coin-fly) {
+  display: none !important;
+}
+body.photo-mode .touch-root {
+  display: none !important;
+}
+.photo-ui {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 40;
+  pointer-events: auto;
+  touch-action: none;
+  font-family: Fredoka, Arial, sans-serif;
+}
+.photo-ui.show {
+  display: block;
+}
+.ph-drag {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.ph-frame {
+  position: absolute;
+  inset: 7% 6% calc(150px + var(--safe-b, 0px)) 6%;
+  pointer-events: none;
+}
+.ph-frame i {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+.ph-frame i:nth-child(1) {
+  top: 0;
+  left: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+.ph-frame i:nth-child(2) {
+  top: 0;
+  right: 0;
+  border-left: 0;
+  border-bottom: 0;
+}
+.ph-frame i:nth-child(3) {
+  bottom: 0;
+  left: 0;
+  border-right: 0;
+  border-top: 0;
+}
+.ph-frame i:nth-child(4) {
+  bottom: 0;
+  right: 0;
+  border-left: 0;
+  border-top: 0;
+}
+.photo-ui button {
+  touch-action: manipulation;
+}
+.ph-x {
+  position: absolute;
+  top: calc(max(12px, var(--rz-right, 0px)) + var(--safe-t, 0px));
+  right: calc(12px + var(--safe-r, 0px));
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #fff !important;
+  background: rgba(20, 24, 36, 0.7) !important;
+  box-shadow: 0 0 0 3px #fff;
+}
+.ph-zoom {
+  position: absolute;
+  right: calc(14px + var(--safe-r, 0px));
+  top: 34%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ph-zoom button {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--ink, #14213d) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 0 0 3px var(--ink, #14213d);
+}
+.photo-ui.shot .ph-panel,
+.photo-ui.shot .ph-snap,
+.photo-ui.shot .ph-zoom,
+.photo-ui.shot .ph-frame,
+.photo-ui.outside .ph-zoom {
+  display: none;
+}
+.ph-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px calc(8px + var(--safe-r, 0px)) calc(8px + var(--safe-b, 0px)) calc(8px + var(--safe-l, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: linear-gradient(rgba(10, 12, 20, 0), rgba(10, 12, 20, 0.75) 30%);
+}
+.ph-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  padding: 2px 3px;
+  margin-right: 96px; /* room for the snap button */
+}
+.ph-row::-webkit-scrollbar {
+  display: none;
+}
+.ph-row.dim {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.ph-chip {
+  flex: none;
+  min-height: 40px;
+  padding: 0 0.9em !important;
+  border-radius: 2em;
+  font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+.ph-chip.on {
+  color: var(--ink, #14213d) !important;
+  background: #ffd84a !important;
+  box-shadow: 0 0 0 2px var(--ink, #14213d);
+}
+.ph-snap {
+  position: absolute;
+  right: calc(12px + var(--safe-r, 0px));
+  bottom: calc(22px + var(--safe-b, 0px));
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  font-size: 2rem;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #e6ebf2 70%, #c4ccd8) !important;
+  box-shadow: 0 0 0 4px var(--ink, #14213d), 0 0 0 9px rgba(255, 255, 255, 0.6), 0 0.3em 0.8em rgba(0, 0, 0, 0.4);
+  transition: transform 0.1s;
+}
+.ph-snap:active {
+  transform: scale(0.88);
+}
+.ph-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+.ph-flash.go {
+  animation: phFlash 0.45s ease-out;
+}
+@keyframes phFlash {
+  from {
+    opacity: 0.95;
+  }
+}
+.ph-shot {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 12, 20, 0.55);
+}
+.ph-shot.show {
+  display: grid;
+}
+.ph-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 640px);
+  animation: phIn 0.6s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.ph-card img {
+  max-width: 100%;
+  max-height: calc(100dvh - 140px);
+  border-radius: 4px;
+  box-shadow: 0 0.6em 1.8em rgba(0, 0, 0, 0.5);
+  transform: rotate(-2deg);
+}
+.ph-btns {
+  display: flex;
+  gap: 10px;
+}
+@keyframes phIn {
+  from {
+    transform: translateY(40vh) rotate(8deg) scale(0.6);
+    opacity: 0;
+  }
+}
+/* landscape phones: one compact strip of chips, the snap + zoom down the right */
+@media (max-height: 560px) {
+  .ph-frame {
+    inset: 8% 14% 64px 6%;
+  }
+  .ph-panel {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding-top: 4px;
+    padding-right: calc(96px + var(--safe-r, 0px));
+  }
+  .ph-chip {
+    min-height: 36px;
+    font-size: 0.78rem;
+  }
+  .ph-row {
+    margin-right: 0;
+    flex: none;
+    max-width: 100%;
+  }
+  .ph-snap {
+    width: 68px;
+    height: 68px;
+    bottom: auto;
+    top: 52%;
+  }
+  .ph-zoom {
+    top: 18%;
+    flex-direction: row;
+    right: calc(96px + var(--safe-r, 0px));
+  }
+}

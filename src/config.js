@@ -392,16 +392,22 @@ export const GATES = {
 // --- The flight (airport/cabin.js + flight.js) and the arrival city (airport/city.js) -----------------
 export const FLIGHT = {
   cabin: { x: 0, y: 300, z: -300 }, // the cabin interior is built up here, out of sight
-  aisle: 1.45, // the two aisles run at x = cabin.x -/+ aisle (widebody, twin aisle)
+  aisle: 1.6, // the two aisles run at x = cabin.x -/+ aisle (widebody, twin aisle: wide enough for the chase cam)
   // Classes, nose to tail. `seats` = the letters per block, blocks split by '|' (A on the left / -X).
   // `x` = each letter's offset from the centre line. Upgrades are bought at check-in (CHECKIN.upgrades,
   // same ids) or from the crew at the curtain (`upgrade`, a little dearer): coins only, never gems.
   classes: [
-    { id: 'first', name: 'First Class', short: 'FIRST', rows: 2, pitch: 2.35, seats: 'A|E|K', x: { A: -2.95, E: 0, K: 2.95 }, color: '#e8b54a', upgrade: 360 },
-    { id: 'business', name: 'Business', short: 'BUSINESS', rows: 4, pitch: 1.7, seats: 'A|EF|K', x: { A: -2.47, E: -0.47, F: 0.47, K: 2.47 }, color: '#4f8dff', upgrade: 260 },
-    { id: 'premium', name: 'Premium Economy', short: 'PREMIUM', rows: 4, pitch: 1.1, seats: 'AC|DF|HK', x: { A: -3.22, C: -2.52, D: -0.37, F: 0.37, H: 2.52, K: 3.22 }, color: '#2fc4b2', upgrade: 130 },
-    { id: 'economy', name: 'Economy', short: 'ECONOMY', rows: 16, pitch: 0.9, seats: 'ABC|DEF|GHK', x: { A: -3.48, B: -2.9, C: -2.32, D: -0.58, E: 0, F: 0.58, G: 2.32, H: 2.9, K: 3.48 }, color: '#3a8bff' },
+    { id: 'first', name: 'First Class', short: 'FIRST', rows: 2, pitch: 2.35, seats: 'A|E|K', x: { A: -3.2, E: 0, K: 3.2 }, color: '#e8b54a', upgrade: 360 },
+    { id: 'business', name: 'Business', short: 'BUSINESS', rows: 4, pitch: 1.7, seats: 'A|EF|K', x: { A: -2.77, E: -0.47, F: 0.47, K: 2.77 }, color: '#4f8dff', upgrade: 260 },
+    { id: 'premium', name: 'Premium Economy', short: 'PREMIUM', rows: 4, pitch: 1.1, seats: 'AC|DF|HK', x: { A: -3.52, C: -2.82, D: -0.37, F: 0.37, H: 2.82, K: 3.52 }, color: '#2fc4b2', upgrade: 130 },
+    { id: 'economy', name: 'Economy', short: 'ECONOMY', rows: 16, pitch: 0.9, seats: 'ABC|DEF|GHK', x: { A: -3.78, B: -3.2, C: -2.62, D: -0.58, E: 0, F: 0.58, G: 2.62, H: 3.2, K: 3.78 }, color: '#3a8bff' },
   ],
+  // The chase cam on board (the cabin is tall enough to see yourself in third person).
+  camera: { maxDistance: 7.5, maxPitch: 0.6 },
+  // Your seatbelt (inflight.js): B / the BELT button buckles it while you sit. Buckled, you can't stand up.
+  // The sign comes on for take-off, turbulence and landing: buckle up within `graceS` s for `goodCoins`.
+  // Standing (or sitting unbuckled) when turbulence hits knocks you about.
+  belt: { graceS: 6, goodCoins: 5, stumble: 6.5, bonk: 0.6 },
   // The cabin crew (cabinCrew.js): one attendant guards each class curtain; you may always walk aft, never
   // forward past your own class. Each push past a curtain is a strike (remembered `memory` s): 1 polite,
   // 2 firm, 3 = walked back to your seat (seatbelt on for `belted` s). During the meal service the posts
@@ -422,7 +428,249 @@ export const FLIGHT = {
       caught: ['Nice try! Back to {seat}, please.', 'Lovely attempt. {seat} misses you!', 'Hmm, that\'s not your seat, is it?'],
       welcome: ['Welcome to {cls}!', 'Right this way, {cls} awaits!', 'Enjoy the upgrade!'],
       post: ['Enjoy your flight!', 'Let me know if you need anything.', 'The meal service will start soon.', 'Please keep the aisle clear.'],
+      // the chase (rules.js / cabinCrew.js)
+      chase: ['HEY! Stop right there!', 'Come back here!', 'Passenger! STOP!', 'No running in the cabin!', 'Oi! Get back here!'],
+      radio: ['Code red in the cabin!', 'Runner heading your way!', 'Cut them off!', 'Need backup in the aisle!'],
+      search: ['Where did they go?', 'I saw them come this way...', 'Hmm... come out, come out...', 'They were right here!'],
+      lost: ['Lost them.', 'Never mind... back to work.', 'Next time!', 'Slippery one, that.'],
+      knock: ['Knock knock! Everything OK in there?', 'I know you\'re in there!', 'Come out, please!'],
+      blanket: ['Nice try!', 'Peekaboo!', 'I can see your feet!'],
+      gotcha: ['GOTCHA!', 'Got you!', 'Caught you!', 'That\'s enough of that!'],
     },
+  },
+  // The in-flight menu (inflight.js, models in airport/food.js). Tap MENU in your seat: the card shows the
+  // cabin of the seat you're sitting in (and every cabin behind it), so a sneaker up front can order First
+  // Class food too. Prices are coins (never gems). Ticket holders of First / Business get their own
+  // cabin's dishes complimentary. An attendant brings each order to your tray table; tap EAT (or E) for a
+  // bite. `bites` = taps to finish it, `sound` = the bite sound (crunch | chew | slurp | sip | fizzy |
+  // creamy), `crumbs` = the crumb colours, `effect` = what it does once finished (FOOD_EFFECTS).
+  menu: {
+    maxTray: 3, // dishes on your tray at once
+    scale: 1.5, // food + trays drawn this much bigger than life (the avatars are chunky)
+    deliverIn: [2.5, 5], // s before the attendant sets off with it (the galley plates it up)
+    tiers: ['Economy', 'Premium', 'Business', 'First'],
+    items: [
+      // Economy (tier 3)
+      { id: 'chicken', tier: 3, cat: 'meal', name: 'Chicken & Rice', icon: '🍗', price: 35, bites: 5, sound: 'chew', crumbs: ['#c9773a', '#f4ecd8'], effect: 'full', desc: 'Roast chicken, buttery rice and peas.' },
+      { id: 'pasta', tier: 3, cat: 'meal', name: 'Tomato Pasta', icon: '🍝', price: 35, bites: 5, sound: 'slurp', crumbs: ['#f1c75a', '#d2412a'], effect: 'full', desc: 'Penne in a rich tomato sauce.' },
+      { id: 'sandwich', tier: 3, cat: 'meal', name: 'Club Sandwich', icon: '🥪', price: 25, bites: 4, sound: 'crunch', crumbs: ['#e8c07a', '#7ac943'], effect: 'full', desc: 'Toasted triple-decker, cut in triangles.' },
+      { id: 'noodles', tier: 3, cat: 'meal', name: 'Cup Noodles', icon: '🍜', price: 20, bites: 4, sound: 'slurp', crumbs: ['#f3d27a', '#ffffff'], effect: 'warm', desc: 'Steaming hot. Watch your tongue!' },
+      { id: 'chips', tier: 3, cat: 'snack', name: 'Potato Chips', icon: '🥔', price: 15, bites: 6, sound: 'crunch', crumbs: ['#f2c94c', '#e0a72e'], effect: 'none', desc: 'The crunchiest bag on board.' },
+      { id: 'popcorn', tier: 3, cat: 'snack', name: 'Movie Popcorn', icon: '🍿', price: 14, bites: 5, sound: 'crunch', crumbs: ['#fff3c4', '#f2c94c'], effect: 'happy', desc: 'Buttery, salty, made for the seat screen.' },
+      { id: 'cookie', tier: 3, cat: 'snack', name: 'Choc Chip Cookie', icon: '🍪', price: 12, bites: 3, sound: 'crunch', crumbs: ['#c98a4a', '#4a2a14'], effect: 'happy', desc: 'Still warm from the galley oven.' },
+      { id: 'cola', tier: 3, cat: 'drink', name: 'Cola', icon: '🥤', price: 15, bites: 3, sound: 'fizzy', crumbs: ['#5a2a14'], effect: 'jump', desc: 'Ice-cold and fizzy. Bouncy legs!' },
+      { id: 'juice', tier: 3, cat: 'drink', name: 'Orange Juice', icon: '🧃', price: 15, bites: 3, sound: 'sip', crumbs: ['#ff9d2e'], effect: 'speed', desc: 'Freshly squeezed vitamin boost.' },
+      { id: 'tea', tier: 3, cat: 'drink', name: 'Hot Tea', icon: '🍵', price: 10, bites: 3, sound: 'sip', crumbs: ['#b5733a'], effect: 'calm', desc: 'A proper cuppa. So relaxing.' },
+      // Premium (tier 2)
+      { id: 'burger', tier: 2, cat: 'meal', name: 'Burger & Fries', icon: '🍔', price: 55, bites: 5, sound: 'chew', crumbs: ['#e3a04a', '#7ac943', '#d2412a'], effect: 'full', desc: 'Double patty, cheese, crispy fries.' },
+      { id: 'curry', tier: 2, cat: 'meal', name: 'Spicy Curry', icon: '🍛', price: 50, bites: 5, sound: 'chew', crumbs: ['#e0812a', '#ffffff'], effect: 'spicy', desc: 'Fiery! Fire burps guaranteed.' },
+      { id: 'cheesecake', tier: 2, cat: 'dessert', name: 'Strawberry Cheesecake', icon: '🍰', price: 40, bites: 3, sound: 'creamy', crumbs: ['#fff3d6', '#e8434f'], effect: 'happy', desc: 'Creamy, with a strawberry crown.' },
+      { id: 'smoothie', tier: 2, cat: 'drink', name: 'Berry Smoothie', icon: '🍹', price: 30, bites: 3, sound: 'slurp', crumbs: ['#c03a8a'], effect: 'speed', desc: 'Slurp it through the straw!' },
+      { id: 'coffee', tier: 2, cat: 'drink', name: 'Espresso', icon: '☕', price: 25, bites: 2, sound: 'sip', crumbs: ['#5a3418'], effect: 'turbo', desc: 'Double shot. Sprint like the wind.' },
+      // Business (tier 1)
+      { id: 'steak', tier: 1, cat: 'meal', name: 'Steak & Mash', icon: '🥩', price: 110, bites: 6, sound: 'chew', crumbs: ['#7a3a22', '#f4ecd8'], effect: 'sleepy', desc: 'Fillet, creamy mash, red wine jus.' },
+      { id: 'sushi', tier: 1, cat: 'meal', name: 'Sushi Platter', icon: '🍣', price: 95, bites: 6, sound: 'chew', crumbs: ['#ff8a6a', '#ffffff'], effect: 'full', desc: 'Salmon nigiri and maki rolls.' },
+      { id: 'lavacake', tier: 1, cat: 'dessert', name: 'Lava Cake', icon: '🧁', price: 80, bites: 4, sound: 'creamy', crumbs: ['#4a2414', '#ffffff'], effect: 'happy', desc: 'Molten chocolate centre. Oozy!' },
+      { id: 'mocktail', tier: 1, cat: 'drink', name: 'Sunset Mocktail', icon: '🍸', price: 60, bites: 3, sound: 'fizzy', crumbs: ['#ff7a3a'], effect: 'jump', desc: 'Sparkling passionfruit and orange.' },
+      // First (tier 0)
+      { id: 'lobster', tier: 0, cat: 'meal', name: 'Butter Lobster', icon: '🦞', price: 190, bites: 6, sound: 'crunch', crumbs: ['#ff5a3a', '#ffe08a'], effect: 'golden', desc: 'A whole lobster with garlic butter.' },
+      { id: 'wagyu', tier: 0, cat: 'meal', name: 'Wagyu Steak', icon: '🍖', price: 220, bites: 6, sound: 'chew', crumbs: ['#8a3a26', '#ffd27a'], effect: 'sleepy', desc: 'Melt-in-your-mouth A5 wagyu.' },
+      { id: 'caviar', tier: 0, cat: 'snack', name: 'Caviar Blinis', icon: '🥞', price: 160, bites: 4, sound: 'crunch', crumbs: ['#1a1a1a', '#f4e4b8'], effect: 'golden', desc: 'Tiny pancakes, crème fraîche, caviar.' },
+      { id: 'sundae', tier: 0, cat: 'dessert', name: 'Giant Sundae', icon: '🍨', price: 140, bites: 5, sound: 'creamy', crumbs: ['#ffd6e8', '#ffffff', '#ff4a6a'], effect: 'cold', desc: 'Three scoops, sauce, sprinkles. Brain freeze!' },
+      { id: 'champagne', tier: 0, cat: 'drink', name: 'Champagne', icon: '🥂', price: 120, bites: 3, sound: 'fizzy', crumbs: ['#ffe8a0'], effect: 'golden', desc: 'Vintage bubbly, chilled just right.' },
+    ],
+  },
+  // Breaking the rules (rules.js = you, cabinCrew.js = the crew watching + chasing). See rules.js.
+  rules: {
+    stamina: 3.5, // s of sprinting on board from full
+    regen: 0.3, // stamina per s once rested
+    restDelay: 0.8, // s after sprinting before it refills
+    recover: 0.45, // out of breath until it refills to this
+    reach: 1.4, // m from a lavatory door / exit handle to use it
+    spotWindow: 0.9, // s: hide this soon after a chaser saw you and they saw where you went
+    beltGrace: 5, // s after the sign comes on before being up / unbuckled counts
+    alarmTime: 9, // s the exit-door alarm flashes
+    escapeCoins: 25, // getting away from a chase (once a flight)
+    jailTime: 15, // s in the arrival cell (or pay bail)
+    bail: 120,
+    punish: { belted: [6, 10, 14], fine: 40, menuBan: 45 }, // belt-lock s for catches 1-3; catch 2 fine; catch 3 menu ban s
+    // The crew (cabinCrew.js): how far they see, how fast the meter fills, the chase.
+    sight: 7.5, // m an attendant facing you sees a rule broken
+    seatedSight: 2.2, // m: sitting somewhere you shouldn't is only noticed up close
+    feel: 1.4, // m: right next to them, they notice whichever way they face
+    suspRate: 0.65, // meter per s while seen (x the rule's weight: trespass 1, galley 0.8, belt 0.5)
+    suspDecay: 0.1, // meter per s while nobody sees anything
+    chaseSpeed: 9.5, // m/s (you walk 8, sprint 14 while stamina lasts)
+    chaseSight: 15, // m a chaser keeps sight of you
+    loseAfter: 4, // s out of sight before they lose you
+    searchTime: 6, // s they look around where they last saw you
+    catchDist: 1.25, // m: grabbed
+    helperAfter: 3, // s into a chase a second attendant joins (from the other side)
+    knocks: 3, // knocks on the lavatory door before they open it
+    disguiseK: 0.15, // in the pilot uniform the crew's suspicion fills this much slower
+  },
+  // Phase 3 (luxury.js, geometry in airport/deck.js): the cockpit, the Sky Lounge upstairs, luxury seats.
+  luxury: {
+    tourPrice: 200, // a cockpit tour (free for First; only with a clean record)
+    tourTime: 40, // s on the flight deck
+    pilotNotice: 0.08, // per s the pilots' suspicion rises with a stranger in the cockpit
+    pilotClose: 0.25, // per s extra right behind them
+    control: 0.3, // each control a stranger touches
+    wrongCodes: 3, // wrong keypad codes before security is called
+    sneakyCoins: 60, // in and out of the cockpit unseen (once a flight)
+    coffeeEvery: [50, 80], // s between the first officer's coffee runs (the door stands open)
+    coffeeTime: 7, // s he spends at the coffee machine
+    loungeSight: 7, // m the lounge bartender spots a guest without a First ticket
+    loungeRate: 0.35, // per s his suspicion rises
+    crewRestWake: 9, // s in the crew rest before the sleeper wakes up
+    sleepTime: 4, // flight time passes this much faster while you sleep in a bed
+    massage: 6, // s of massage
+    shower: 5, // s in the shower
+    cocktails: [
+      { id: 'sunset', name: 'Sky Sunset', icon: '🌅', dish: 'mocktail', price: 70, effect: 'jump', desc: 'Passionfruit, orange, a splash of fizz.' },
+      { id: 'fizz', name: 'Golden Fizz', icon: '🥂', dish: 'champagne', price: 110, effect: 'golden', desc: 'Sparkling elderflower with gold flakes.' },
+      { id: 'espresso', name: 'Jet Espresso Shake', icon: '☕', dish: 'coffee', price: 80, effect: 'turbo', desc: 'Iced espresso, shaken hard. Zoom!' },
+      { id: 'colada', name: 'Cloud Nine Colada', icon: '🥥', dish: 'smoothie', price: 75, effect: 'calm', desc: 'Coconut and pineapple, silky smooth.' },
+      { id: 'dragon', name: 'Dragon Punch', icon: '🐉', dish: 'juice', price: 90, effect: 'spicy', desc: 'Chilli-mango punch. Breathes fire.' },
+    ],
+    pilots: {
+      hello: ['Welcome to the flight deck!', 'Mind the buttons!', 'Beautiful view, isn\'t it?'],
+      hm: ['Hm?', 'Did you hear something?', 'Is someone there?'],
+      who: ['WHO ARE YOU?!', 'GET OUT OF MY COCKPIT!', 'SECURITY!'],
+      relief: ['Relief pilot? Take a seat, captain!', 'Ah, the second crew. Welcome!', 'About time, captain!'],
+      prank: ['Hey! Don\'t touch that!', 'What are you doing?!', 'Hands off the panel!'],
+      coffee: ['Coffee, black, two sugars!', 'Just grabbing a coffee...', 'Back in a sec!'],
+    },
+  },
+  // Phase 4. NEIGHBOURS (neighbours.js): a kid behind you who kicks your seat, a chatty passenger beside
+  // you, a crying baby across the aisle, a snorer ahead. SEAT SCREEN (seatScreen.js): movies (with popcorn),
+  // two mini-games, outside cameras (airport/skyView.js). EVENTS (events.js): a storm with lightning, an
+  // oxygen-mask drill, the captain's jokes. PHOTO MODE (photo.js). Coins only, never gems.
+  fun: {
+    neighbours: {
+      kickEvery: [16, 28], // s between the kid's kicking fits
+      kickBurst: [6, 10], // s a fit lasts
+      kickGap: 0.42, // s between kicks
+      glareCalm: 35, // s the kid behaves after you turn around (when it works)
+      glareWorks: 0.6, // chance it works (higher the second time)
+      toyPrice: 25, // a toy plane for the kid: no more kicking for the rest of the flight
+      cryEvery: [22, 36], // s between the baby's crying fits
+      cryFor: [8, 12],
+      babyCoins: 15, // calm the baby (once a flight)
+      peekChance: 0.55, // each peekaboo round: chance the baby giggles and stops
+      lullaby: 5, // s of humming: always works
+      babySleep: 70, // s the baby sleeps after you calm it
+      chatEvery: [14, 24], // s between the chatty passenger's stories
+      chatFor: 6,
+      friendChats: 3, // chats to become best friends
+      friendCoins: 20,
+      headphones: 60, // s the chatty passenger sulks after you put headphones on
+      snoreWake: 25, // s a nudged snorer stays awake
+      kidNames: ['max', 'lily', 'leo', 'mia', 'sam', 'zoe'],
+      lines: {
+        kick: ['Hehe!', 'Kick kick kick!', 'Are we there yet?', 'I\'m BORED!', 'Bonk bonk!'],
+        sorry: ['Sorry...', 'Okaaay.', 'Fiiine.'],
+        refuse: ['NO! Hehe!', 'Make me!', 'Kick kick KICK!'],
+        toy: ['WOW! A plane!', 'Zoooom!', 'Thank you!!', 'It\'s the best!'],
+        chatHello: ['Oh hi! Long flight, huh?', 'Hiya, neighbour!', 'So, where are you headed?'],
+        facts: [
+          'Did you know we\'re flying at about 900 km/h?',
+          'Food tastes blander up here. That\'s why tomato juice is so popular!',
+          'The tiny hole in the window? It lets the panes breathe!',
+          'Lightning hits planes all the time. They\'re built for it!',
+          'Contrails are just clouds the engines make!',
+          'The two pilots eat different meals, just in case!',
+          'My cousin\'s friend\'s dog flew business once. True story.',
+          'A jet engine gulps a whole room of air every second!',
+          'The wings bend up a few metres in flight. Totally normal!',
+        ],
+        friend: ['You\'re the best seat buddy ever!', 'Here, for being such a good listener!'],
+        sulk: ['Oh. Headphones. Okay then...', 'Fine, I\'ll talk to the window.'],
+        parent: ['Sorry! She\'s teething...', 'Shhh, shhh...', 'Please sleep, please sleep...'],
+        thanks: ['You\'re a miracle worker!', 'Thank you SO much!', 'Finally... peace.'],
+        snorer: ['Wha-? I wasn\'t asleep!', 'Huh? Are we there?', '*SNORT* ...what?'],
+      },
+    },
+    screen: {
+      movieTime: 48, // s a movie runs
+      timeK: 2, // the flight passes this much faster while you watch
+      filmCoins: 10, // watched one to the end (each movie once a flight)
+      movies: [
+        { id: 'cats', name: 'Cloud Cats', icon: '🐱', genre: 'Comedy', desc: 'Two cats, one cloud, zero chill.' },
+        { id: 'shark', name: 'Shark Runway', icon: '🦈', genre: 'Thriller', desc: 'Something is circling the tarmac...' },
+        { id: 'love', name: 'Love at 30,000 ft', icon: '💘', genre: 'Romance', desc: 'Two little planes. One big sky.' },
+      ],
+      gameCap: 40, // coins from the mini-games per flight
+      dodgeTime: 40, // s a Sky Dodge run lasts (if you survive)
+      cams: [
+        { id: 'wing', name: 'Wing Cam', icon: '🛩️' },
+        { id: 'tail', name: 'Tail Cam', icon: '🛫' },
+        { id: 'chase', name: 'Chase Cam', icon: '🎥' },
+        { id: 'nose', name: 'Nose Cam', icon: '👃' },
+      ],
+    },
+    events: {
+      first: 28, // s into the cruise before the first event
+      every: [34, 50], // s between events
+      storm: { time: 22, coins: 15 }, // buckled in a seat when it ends = STORM SURVIVOR
+      drill: { time: 9, hold: 11, coins: 20 }, // s to put a mask on, s the masks hang there
+      jokes: [
+        'Folks, if you look out the left window, you\'ll see... the wing. Still there. Great news!',
+        'Please don\'t feed the flight attendants. They\'re on a strict pretzel diet.',
+        'We\'ve reached cruising altitude. I\'m switching the seatbelt sign off and myself to snack mode.',
+        'This plane runs on jet fuel and good vibes. Mostly good vibes.',
+        'If the masks drop, put yours on first, then help your neighbour. Then come help me, I can never find mine.',
+        'Our flight time today is shorter than the queue for the lavatory. Good luck!',
+        'If you enjoyed flying skyhop air, tell your friends. If not... we were a different airline.',
+        'Weather at the destination is lovely. I checked. With my eyes. From up here.',
+        'Fun fact: I passed my pilot exam on the first try. Well, the third. Second-ish.',
+      ],
+    },
+    // Multiplayer on board (crewShift.js): reporting stowaways, the flight-attendant shift. Coins only.
+    crew: {
+      reportRange: 2.8, // m: a stowaway this close gets a REPORT button
+      reportCooldown: 15, // s before you can report the same passenger again
+      reportCoins: 20, // their game confirmed it (once per passenger a flight)
+      escortCoins: 35, // ... while you were on shift
+      shiftPrice: 150, // a CREW SHIFT (bought in a galley)
+      serveRange: 2.2, // m
+      serveItems: ['cookie', 'chips', 'popcorn', 'cola', 'juice'],
+      npcTip: 6, // a neighbour you serve tips this (once a shift each)
+      remoteTip: 8, // a real passenger's game sends this tip back
+      shiftBonus: 4, // per passenger served, paid when the shift ends
+    },
+    photo: {
+      filters: [
+        { id: 'none', name: 'Normal', css: 'none' },
+        { id: 'vivid', name: 'Vivid', css: 'saturate(1.6) contrast(1.1)' },
+        { id: 'retro', name: 'Retro', css: 'sepia(0.65) contrast(1.1) brightness(1.05)' },
+        { id: 'noir', name: 'Noir', css: 'grayscale(1) contrast(1.3)' },
+        { id: 'dream', name: 'Dream', css: 'saturate(1.3) brightness(1.12) hue-rotate(-12deg)' },
+      ],
+      poses: [
+        { id: 'none', name: 'Natural', icon: '🙂' },
+        { id: 'wave', name: 'Wave', icon: '👋' },
+        { id: 'peace', name: 'Peace', icon: '✌️' },
+        { id: 'cheer', name: 'Cheer', icon: '🙌' },
+      ],
+      coins: 5, // the first snap each flight
+    },
+  },
+  // What a finished dish does to you (inflight.js): s = seconds, speed / jump = movement multipliers.
+  foodEffects: {
+    none: { s: 0, toast: 'Crunchy! That hit the spot.' },
+    full: { s: 0, toast: 'Mmm, delicious! Your tummy is happy.' },
+    warm: { s: 20, speed: 1.05, toast: 'Warm and cosy inside!' },
+    happy: { s: 25, toast: 'Sweet! Little hearts float around you.' },
+    calm: { s: 25, speed: 0.95, toast: 'Ahh, so relaxing...' },
+    jump: { s: 40, jump: 1.35, toast: 'Bubbly! You can jump higher for a while!' },
+    speed: { s: 40, speed: 1.15, toast: 'Vitamin boost! You walk faster for a while.' },
+    turbo: { s: 30, speed: 1.35, toast: 'CAFFEINE! Turbo speed for 30 s!' },
+    spicy: { s: 15, speed: 1.1, toast: 'SPICY! You breathe fire!' },
+    sleepy: { s: 25, speed: 0.75, toast: 'So full... so sleepy... Zzz' },
+    cold: { s: 12, speed: 0.9, toast: 'BRAIN FREEZE! Brrr!' },
+    golden: { s: 40, speed: 1.1, toast: 'Pure luxury! You sparkle like gold.' },
+    fresh: { s: 45, speed: 1.12, toast: 'Squeaky clean! Fresh, sparkly and a little faster.' },
   },
   cruiseTime: 240, // s in the air
   passengers: 70, // NPCs on board

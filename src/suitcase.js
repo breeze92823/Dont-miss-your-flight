@@ -271,6 +271,20 @@ export function makeHat(kind) {
     const badge = new Mesh(new BoxGeometry(0.06, 0.06, 0.025), gold)
     badge.position.set(0, 0.13, 0.22)
     g.add(crown, band, visor, wings, badge)
+  } else if (kind === 'crew') {
+    // the flight attendant's pillbox hat (crewShift.js): navy, a red band, gold wings, tilted a little
+    const crown = new Mesh(new CylinderGeometry(0.26, 0.275, 0.17, 24), mat('#16245a'))
+    crown.position.y = 0.1
+    const top = new Mesh(new CylinderGeometry(0.26, 0.26, 0.02, 24), mat('#1d2f72'))
+    top.position.y = 0.19
+    const band = new Mesh(new CylinderGeometry(0.28, 0.28, 0.05, 24), mat('#e0283a'))
+    band.position.y = 0.04
+    const wings = new Mesh(new BoxGeometry(0.16, 0.03, 0.02), gold)
+    wings.position.set(0, 0.12, 0.27)
+    const pin = new Mesh(new CylinderGeometry(0.025, 0.025, 0.02, 10).rotateX(Math.PI / 2), gold)
+    pin.position.set(0, 0.12, 0.28)
+    g.add(crown, top, band, wings, pin)
+    g.rotation.z = 0.12
   } else {
     const crown = new Mesh(new CylinderGeometry(0.235, 0.21, 0.15, 20), mat('#1f3f9a'))
     crown.position.y = 0.1

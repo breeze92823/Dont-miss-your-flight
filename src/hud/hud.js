@@ -127,7 +127,8 @@ export function createHud({ onAction }) {
   const skipLine = el('button', 'skipline', `<span>Skip Line</span>${coinTag(PRICES.skipLine)}`, bottom)
   tap(skipLine, () => confirmBuy('Skip Line', PRICES.skipLine, () => onAction('skipLine'), 'Jump straight to the front of the line.'))
   // Bottom action: "Plane arriving in 2:21" + Skip Time, "Seat 24E | Cruising..." + Skip Time, Fly Again.
-  const act = el('div', 'hud-act', '<div class="act-l"></div><button class="act-b"><span class="act-t"></span><span class="act-p"></span></button>', play)
+  const act = el('div', 'hud-act', '<div class="act-slot"></div><div class="act-l"></div><button class="act-b"><span class="act-t"></span><span class="act-p"></span></button>', play)
+  const actSlot = act.querySelector('.act-slot') // extra controls above the label (the seat bar on board)
   const actL = act.querySelector('.act-l')
   const actB = act.querySelector('.act-b')
   let actTap = null
@@ -282,10 +283,11 @@ export function createHud({ onAction }) {
   })
 
   // --- Small helpers ---------------------------------------------------------------------------
-  function toast(text) {
+  // dur: s on screen (longer for the captain's announcements)
+  function toast(text, dur = 2.6) {
     const t = el('div', 'toast', text, toasts)
-    setTimeout(() => t.classList.add('out'), 2600)
-    setTimeout(() => t.remove(), 3100)
+    setTimeout(() => t.classList.add('out'), dur * 1000)
+    setTimeout(() => t.remove(), dur * 1000 + 500)
   }
   let bigTimer = 0
   function big(text, color = 'gold', dur = 1.4) {
@@ -480,6 +482,13 @@ export function createHud({ onAction }) {
     },
     big,
     toast,
+    root,
+    actSlot,
+    openWin,
+    // Close the open window only if it is of this kind (e.g. the menu when the flight lands).
+    closeWinIf(cls) {
+      if (win?.querySelector(`.win.${cls}`)) closeWin()
+    },
     status(text) {
       statusEl.textContent = text ?? ''
       statusEl.classList.toggle('show', !!text)

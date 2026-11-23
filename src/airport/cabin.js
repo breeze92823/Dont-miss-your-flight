@@ -52,10 +52,15 @@ import { bake } from '../bake.js'
 import { neon, retint, solidBox } from '../propkit.js'
 import { lathe, rbox, roundRectShape } from '../detail.js'
 
-const R = 4.0 // hull radius
-const HY = 1.0 // hull centre above the floor
-const SY = 0.8 // hull squash
-const CEIL = 3.15 // drop ceiling
+// A tall, roomy cabin (the chase cam fits above the seats, so you can play it in third person).
+const R = 4.25 // hull radius
+const HY = 1.35 // hull centre above the floor
+const SY = 1.2 // hull stretch (taller than wide)
+const CEIL = 4.6 // drop ceiling
+const LIFT = 0.6 // overhead bins + service units sit this much higher than in a real cabin
+const WX = 0.3 // the window-side seat blocks sit this much further out (wider aisles)
+const BY = 2.06 + LIFT // underside of the side bins
+const BX = 2.42 + WX // inner face of the side bins
 const FONT = 'Fredoka, Arial, sans-serif'
 // Hull half-width at height y above the floor.
 export const hullX = (y) => Math.sqrt(Math.max(0, R * R - ((y - HY) / SY) ** 2))
@@ -903,7 +908,7 @@ export function buildCabin(scene) {
 
   // --- Layout along Z (nose -> tail) -----------------------------------------------------------
   const FRONT_EXT = [1.6, 1.3, 0.85, 0.75] // first seat centre behind its zone start
-  const BACK_EXT = [0.62, 0.5, 0.5, 0.45]
+  const BACK_EXT = [3.4, 0.5, 0.5, 0.45] // First ends in the stair hall (the spiral stair, airport/deck.js)
   const SIT_Y = [0.55, 0.52, 0.53, 0.5]
   const zFront = CB.z - 22.8
   const galleyF = { z0: zFront, z1: zFront + 2.4 }
@@ -1014,7 +1019,7 @@ export function buildCabin(scene) {
     const zn = zones[3]
     const tz0 = zn.rows[0].z - 0.7
     const tz1 = zn.rows[zn.rows.length - 1].z + 0.6
-    for (const x of [-3.19, -2.61, -0.29, 0.29, 2.61, 3.19]) P(S, new BoxGeometry(0.07, 0.014, tz1 - tz0), '#8d949f', X + x, F + 0.007, (tz0 + tz1) / 2)
+    for (const x of [-3.19 - WX, -2.61 - WX, -0.29, 0.29, 2.61 + WX, 3.19 + WX]) P(S, new BoxGeometry(0.07, 0.014, tz1 - tz0), '#8d949f', X + x, F + 0.007, (tz0 + tz1) / 2)
   }
 
   // --- Hull + dado + return-air grille -----------------------------------------------------------------
@@ -1044,7 +1049,7 @@ export function buildCabin(scene) {
     for (const s of [-1, 1]) add(S, new BoxGeometry(0.04, 0.03, z1 - z0), M.gold, X + s * 1.82, F + CEIL - 0.02, (z0 + z1) / 2)
   }
   // Ceiling panel seams aft of First; over Business two light strips and a row of recessed downlights.
-  for (let zz = zones[1].curtain + 0.9; zz < backGalley.z0; zz += 1.8) P(S, new BoxGeometry(ceilW - 0.4, 0.008, 0.025), '#c3c8d1', X, F + CEIL - 0.004, zz)
+  for (let zz = zones[1].curtain + 0.9; zz < backGalley.z0; zz += 1.8) P(S, new BoxGeometry(BX * 2 - 0.1, 0.006, 0.02), '#e2e5ea', X, F + CEIL - 0.003, zz)
   {
     const z0 = zones[1].curtain + 0.25
     const z1 = zones[1].z1 - 0.2
@@ -1057,6 +1062,26 @@ export function buildCabin(scene) {
       add(S, new CircleGeometry(0.07, 14).rotateX(Math.PI / 2), M.lamp, X, F + CEIL - 0.006, zz)
     }
   }
+  // Light bridges across the tall ceiling every few metres aft of First (a beam with a mood strip under it),
+  // and pendant lamps on thin cords over the First Class aisles.
+  for (let zz = zones[1].curtain + 1.8; zz < backGalley.z0 - 0.5; zz += 3.6) {
+    P(S, rbox(BX * 2 - 0.06, 0.12, 0.22, 0.04, 1), '#e6e9ee', X, F + CEIL - 0.06, zz)
+    add(S, new BoxGeometry(BX * 2 - 0.3, 0.012, 0.05), M.light, X, F + CEIL - 0.125, zz)
+  }
+  {
+    const globe = new SphereGeometry(0.11, 14, 10)
+    const cap = tint(lathe([[0, 0.06], [0.05, 0.06], [0.13, -0.02], [0.12, -0.03], [0, 0.02]], 14), '#c9a14a')
+    // one over each suite's table (never in an aisle, where the chase cam flies)
+    for (const r of zones[0].rows) {
+      for (const L of Object.keys(CL[0].x)) {
+        const px = X + CL[0].x[L] * 0.92
+        const pz = r.z - 0.7
+        add(S, new CylinderGeometry(0.006, 0.006, 1.4, 4), M.chrome, px, F + CEIL - 0.7, pz)
+        add(S, cap, M.paint, px, F + CEIL - 1.4, pz)
+        add(S, globe, M.lamp, px, F + CEIL - 1.5, pz)
+      }
+    }
+  }
   // Side bins from Business to the back galley; centre bins over Premium + Economy.
   const binZ0 = zones[1].curtain + 0.15
   const binZ1 = backGalley.z0 - 0.1
@@ -1065,37 +1090,42 @@ export function buildCabin(scene) {
   const binL = binLen / binN
   for (const s of [-1, 1]) {
     const sh = new Shape()
-    const pts = [[2.5, 2.06], [hullX(2.06) - 0.05, 2.06], [hullX(2.95) - 0.05, 2.95], [hullX(CEIL) - 0.03, CEIL], [2.42, CEIL], [2.42, 2.9]]
+    const pts = [[BX + 0.08, BY], [hullX(BY) - 0.05, BY], [hullX(BY + 0.89) - 0.05, BY + 0.89], [hullX(CEIL) - 0.03, CEIL], [BX, CEIL], [BX, BY + 0.84]]
     sh.moveTo(s * pts[0][0], pts[0][1])
     for (const [x, y] of pts.slice(1)) sh.lineTo(s * x, y)
     sh.closePath()
     P(S, new ExtrudeGeometry(sh, { depth: binLen, bevelEnabled: false }), '#c9ced6', X, F, binZ0)
     const d = new Shape()
-    d.moveTo(s * 2.52, 2.05)
-    d.quadraticCurveTo(s * 2.34, 2.46, s * 2.44, 2.9)
-    d.lineTo(s * 2.48, 2.9)
-    d.quadraticCurveTo(s * 2.38, 2.46, s * 2.56, 2.05)
+    d.moveTo(s * (BX + 0.1), BY - 0.01)
+    d.quadraticCurveTo(s * (BX - 0.08), BY + 0.4, s * (BX + 0.02), BY + 0.84)
+    d.lineTo(s * (BX + 0.06), BY + 0.84)
+    d.quadraticCurveTo(s * (BX - 0.04), BY + 0.4, s * (BX + 0.14), BY - 0.01)
     d.closePath()
     const doorGeo = tint(new ExtrudeGeometry(d, { depth: binL - 0.06, bevelEnabled: true, bevelThickness: 0.01, bevelSize: 0.008, bevelSegments: 1, curveSegments: 5 }), '#f7f8fa')
     const latchGeo = tint(rbox(0.035, 0.05, 0.3, 0.012, 1), '#2a2e36')
     for (let i = 0; i < binN; i++) {
       const za = binZ0 + i * binL + 0.03
       add(S, doorGeo, M.paint, X, F, za)
-      add(S, latchGeo, M.paint, X + s * 2.5, F + 2.1, za + binL / 2 - 0.03)
+      add(S, latchGeo, M.paint, X + s * (BX + 0.08), F + BY + 0.04, za + binL / 2 - 0.03)
     }
-    add(S, new BoxGeometry(0.03, 0.02, binLen), M.light, X + s * 2.44, F + CEIL - 0.04, binZ0 + binLen / 2)
-    P(S, rbox(0.9, 0.06, binLen, 0.02, 1), '#dfe2e8', X + s * 2.95, F + 2.03, binZ0 + binLen / 2) // PSU strip
+    add(S, new BoxGeometry(0.03, 0.02, binLen), M.light, X + s * (BX + 0.02), F + BY + 0.86, binZ0 + binLen / 2)
+    // the soffit above the bins: a cove light along the top in the mood colour
+    add(S, new BoxGeometry(0.03, 0.02, binLen), M.light, X + s * (BX + 0.02), F + CEIL - 0.04, binZ0 + binLen / 2)
+    P(S, rbox(0.9, 0.06, binLen, 0.02, 1), '#dfe2e8', X + s * (2.95 + WX), F + BY - 0.03, binZ0 + binLen / 2) // PSU strip
   }
   const cbZ0 = zones[2].curtain + 0.15
   const cbZ1 = backGalley.z0 - 0.1
   {
     const L = cbZ1 - cbZ0
-    P(S, rbox(1.9, 0.78, L, 0.14, 2), '#e9ecf0', X, F + 2.62, cbZ0 + L / 2)
+    P(S, rbox(1.9, 0.78, L, 0.14, 2), '#e9ecf0', X, F + 2.62 + LIFT, cbZ0 + L / 2)
+    // the spine above them, up to the ceiling, with a cove light down each side
+    P(S, rbox(1.5, CEIL - 3.0 - LIFT, L, 0.06, 1), '#f1f3f6', X, F + (CEIL + 3.0 + LIFT) / 2, cbZ0 + L / 2)
+    for (const s of [-1, 1]) add(S, new BoxGeometry(0.03, 0.02, L), M.light, X + s * 0.76, F + CEIL - 0.05, cbZ0 + L / 2)
     const n = Math.round(L / 1.8)
-    for (let i = 0; i <= n; i++) for (const s of [-1, 1]) P(S, new BoxGeometry(0.01, 0.6, 0.02), '#b9bfc8', X + s * 0.955, F + 2.6, cbZ0 + (i * L) / n)
-    for (let i = 0; i < n; i++) for (const s of [-1, 1]) P(S, rbox(0.03, 0.05, 0.28, 0.01, 1), '#2a2e36', X + s * 0.96, F + 2.35, cbZ0 + ((i + 0.5) * L) / n)
-    for (const s of [-1, 1]) add(S, new BoxGeometry(0.03, 0.02, L), M.centreLight, X + s * 0.86, F + 3.03, cbZ0 + L / 2)
-    P(S, rbox(1.4, 0.05, L, 0.02, 1), '#dfe2e8', X, F + 2.21, cbZ0 + L / 2) // centre PSU strip
+    for (let i = 0; i <= n; i++) for (const s of [-1, 1]) P(S, new BoxGeometry(0.01, 0.6, 0.02), '#b9bfc8', X + s * 0.955, F + 2.6 + LIFT, cbZ0 + (i * L) / n)
+    for (let i = 0; i < n; i++) for (const s of [-1, 1]) P(S, rbox(0.03, 0.05, 0.28, 0.01, 1), '#2a2e36', X + s * 0.96, F + 2.35 + LIFT, cbZ0 + ((i + 0.5) * L) / n)
+    for (const s of [-1, 1]) add(S, new BoxGeometry(0.03, 0.02, L), M.centreLight, X + s * 0.86, F + 3.03 + LIFT, cbZ0 + L / 2)
+    P(S, rbox(1.4, 0.05, L, 0.02, 1), '#dfe2e8', X, F + 2.21 + LIFT, cbZ0 + L / 2) // centre PSU strip
   }
   // Passenger service units per row and block: reading lights, gaspers, seatbelt sign.
   const psuGeo = atlasUV(new PlaneGeometry(0.44, 0.42), A_PSU).rotateX(Math.PI / 2)
@@ -1104,8 +1134,8 @@ export function buildCabin(scene) {
   const beltGeo = new PlaneGeometry(0.1, 0.05).rotateX(Math.PI / 2)
   for (const zn of zones.slice(1)) {
     for (const r of zn.rows) {
-      const blocks = [[-2.95, 2.0], [2.95, 2.0]]
-      if (zn.index >= 2) blocks.push([0, 2.18])
+      const blocks = [[-2.95 - WX, BY - 0.06], [2.95 + WX, BY - 0.06]]
+      if (zn.index >= 2) blocks.push([0, 2.18 + LIFT])
       for (const [bx, by] of blocks) {
         const px = X + bx
         const pz = r.z - 0.1
@@ -1120,7 +1150,7 @@ export function buildCabin(scene) {
   }
 
   // --- Windows: bezel with a reveal, scrolling sky glass, shades; light shafts on the sunny side ------
-  const yW = 1.5
+  const yW = 1.6
   const th = Math.asin((yW - HY) / (SY * R))
   const tilt = Math.atan(Math.tan(th) / SY)
   const bezGeo = tint(bezelGeo(), '#f3f4f6')
@@ -1259,7 +1289,7 @@ export function buildCabin(scene) {
       add(S, tint(hullWall(-s, AX + OPEN, CEIL).rotateY(Math.PI), fwdCol), M.paint, X, F, cz - 0.06)
       add(S, new BoxGeometry(0.04, CEIL - 0.1, 0.14), M.chrome, X + s * (AX + OPEN), F + (CEIL - 0.1) / 2, cz)
       add(S, new BoxGeometry(0.04, CEIL - 0.1, 0.14), M.chrome, X + s * (AX - OPEN), F + (CEIL - 0.1) / 2, cz)
-      solidBox((hullX(1) - AX - OPEN) / 2, 1.6, 0.08, X + s * (AX + OPEN + (hullX(1) - AX - OPEN) / 2), F + 1.6, cz)
+      solidBox((hullX(1) - AX - OPEN) / 2, CEIL / 2, 0.08, X + s * (AX + OPEN + (hullX(1) - AX - OPEN) / 2), F + CEIL / 2, cz)
       // header over the opening with the forward class's sign (facing aft)
       P(S, rbox(OPEN * 2 + 0.08, CEIL - 2.32, 0.14, 0.02, 1), '#e3e6eb', X + s * AX, F + (CEIL + 2.32) / 2, cz)
       add(S, new PlaneGeometry(1.3, 0.285), signMats[fwd.index], X + s * AX, F + 2.62, cz + 0.075)
@@ -1270,7 +1300,7 @@ export function buildCabin(scene) {
     const cw = (AX - OPEN) * 2
     P(S, rbox(cw, CEIL - 0.06, 0.14, 0.02, 1), zn.index === 1 ? '#3a2a1c' : '#d6dae1', X, F + (CEIL - 0.06) / 2, cz)
     P(S, rbox(cw - 0.1, CEIL - 0.3, 0.01, 0.005, 1), '#e3e6eb', X, F + (CEIL - 0.06) / 2, cz + 0.075)
-    solidBox(cw / 2, 1.6, 0.08, X, F + 1.6, cz)
+    solidBox(cw / 2, CEIL / 2, 0.08, X, F + CEIL / 2, cz)
     P(S, rbox(0.9, 0.55, 0.05, 0.02, 1), '#16181d', X, F + 1.75, cz + 0.1)
     add(S, new PlaneGeometry(0.84, 0.5), M.screen, X, F + 1.75, cz + 0.128)
     add(S, new PlaneGeometry(0.62, 0.135), signMats[zn.index], X, F + 2.35, cz + 0.08)
@@ -1281,7 +1311,14 @@ export function buildCabin(scene) {
   {
     const gz = galleyF.z0
     const gw = hullX(1.0) * 2
-    P(S, new PlaneGeometry(gw, CEIL), '#c4c9d1', X, F + CEIL / 2, gz + 0.01)
+    // the cockpit wall, with a doorway (the door is a moving part in airport/deck.js)
+    const DW = 1.0
+    const DH = 2.2
+    for (const sx of [-1, 1]) P(S, new PlaneGeometry((gw - DW) / 2, CEIL), '#c4c9d1', X + sx * (DW + (gw - DW) / 2) / 2, F + CEIL / 2, gz + 0.01)
+    P(S, new PlaneGeometry(DW, CEIL - DH), '#c4c9d1', X, F + DH + (CEIL - DH) / 2, gz + 0.01)
+    // door frame
+    for (const sx of [-1, 1]) P(S, new BoxGeometry(0.06, DH, 0.12), '#9aa1ad', X + sx * (DW / 2 + 0.03), F + DH / 2, gz + 0.04)
+    P(S, new BoxGeometry(DW + 0.12, 0.06, 0.12), '#9aa1ad', X, F + DH + 0.03, gz + 0.04)
     // galley block along the cockpit wall (two halves either side of the cockpit door)
     for (const s of [-1, 1]) {
       const cx = X + s * 2.0
@@ -1301,13 +1338,6 @@ export function buildCabin(scene) {
       P(S, lathe([[0, 0], [0.07, 0.005], [0.08, 0.08], [0.06, 0.15], [0.03, 0.17], [0, 0.17]], 10), '#3a3f48', cx - s * 0.6, F + 1.03, gz + 0.4)
       solidBox(1.3, 1.13, 0.4, cx, F + 1.13, gz + 0.4)
     }
-    // cockpit door: reinforced panel, keypad, peephole, CREW ONLY plate
-    P(S, rbox(0.95, 2.1, 0.08, 0.03, 1), '#e6e8ec', X, F + 1.05, gz + 0.05)
-    P(S, rbox(0.85, 2.0, 0.02, 0.02, 1), '#d0d5dc', X, F + 1.04, gz + 0.1)
-    P(S, rbox(0.1, 0.16, 0.03, 0.01, 1), '#2a2f38', X + 0.34, F + 1.15, gz + 0.11)
-    add(S, new PlaneGeometry(0.03, 0.03), M.light, X + 0.34, F + 1.2, gz + 0.127)
-    P(S, new CylinderGeometry(0.025, 0.025, 0.02, 10).rotateX(Math.PI / 2), '#16181d', X, F + 1.6, gz + 0.11)
-    P(S, new BoxGeometry(0.32, 0.08, 0.01), '#d6232e', X, F + 1.85, gz + 0.11)
     // the bar: counter with a gold edge + footrail, back-lit bottle shelf on the galley's aft face
     const bz = galleyF.z1 + 0.55
     add(S, rbox(1.9, 1.05, 0.5, 0.05, 1), M.wood, X, F + 0.525, bz)
@@ -1321,7 +1351,7 @@ export function buildCabin(scene) {
     }
     // the wall behind the bar (galley workspace behind it, crew walk round the ends)
     add(S, rbox(2.2, CEIL, 0.1, 0.02, 1), M.wood, X, F + CEIL / 2, galleyF.z1 - 0.06)
-    solidBox(1.1, 1.6, 0.06, X, F + 1.6, galleyF.z1 - 0.06)
+    solidBox(1.1, CEIL / 2, 0.06, X, F + CEIL / 2, galleyF.z1 - 0.06)
     add(S, new PlaneGeometry(1.9, 0.9), M.bar, X, F + 1.6, galleyF.z1 - 0.005)
     add(S, new BoxGeometry(2.1, 0.02, 0.03), M.gold, X, F + 2.1, galleyF.z1 - 0.0)
     for (let i = 0; i < 4; i++) P(S, lathe([[0, 0], [0.03, 0.0], [0.035, 0.07], [0.01, 0.1], [0, 0.1]], 8), '#f2f6ff', X - 0.45 + i * 0.3, F + 1.1, bz - 0.05) // glasses
@@ -1333,6 +1363,7 @@ export function buildCabin(scene) {
   // --- Mid galley (behind Premium): carts, lavatories, the crew jump seats -------------------------
   const lavGeo = atlasUV(new PlaneGeometry(0.76, 1.94), A_LAV)
   const lavSigns = []
+  const lavs = [] // { i, x, z (the cubicle), stand: { x, z } in front of its door, face (yaw toward the door) }
   {
     const gz = midGalley.z0 + 0.12
     const cw = (AX - OPEN) * 2
@@ -1355,9 +1386,10 @@ export function buildCabin(scene) {
       add(S, lavGeo, M.atlas, lx - s * 0.56, F + 1.0, gz + 0.8, 0, -s * Math.PI / 2, 0)
       const sign = new MeshBasicMaterial({ color: '#2ecc5a' })
       lavSigns.push(sign)
+      lavs.push({ i: lavs.length, x: lx, z: gz + 0.75, stand: { x: lx - s * 1.2, z: gz + 0.8 }, face: s > 0 ? Math.PI / 2 : -Math.PI / 2 })
       add(S, new PlaneGeometry(0.16, 0.06), sign, lx - s * 0.565, F + 1.62, gz + 0.8, 0, -s * Math.PI / 2, 0)
       add(S, new BoxGeometry(0.02, 0.02, 1.4), M.light, lx - s * 0.6, F + CEIL - 0.12, gz + 0.75)
-      solidBox(0.6, 1.5, 0.75, lx + s * 0.05, F + 1.5, gz + 0.75)
+      solidBox(0.6, CEIL / 2, 0.75, lx + s * 0.05, F + CEIL / 2, gz + 0.75)
       // crew jump seat folded against the lav wall
       P(S, rbox(0.42, 0.62, 0.08, 0.03, 1), '#2b303b', lx - s * 0.2, F + 0.95, gz + 1.54)
     }
@@ -1387,8 +1419,9 @@ export function buildCabin(scene) {
       add(S, lavGeo, M.atlas, lx, F + 1.0, gz - 1.66, 0, Math.PI, 0)
       const sign = new MeshBasicMaterial({ color: '#2ecc5a' })
       lavSigns.push(sign)
+      lavs.push({ i: lavs.length, x: lx, z: gz - 0.85, stand: { x: lx, z: gz - 2.25 }, face: 0 })
       add(S, new PlaneGeometry(0.16, 0.06), sign, lx, F + 1.62, gz - 1.665, 0, Math.PI, 0)
-      solidBox(0.7, 1.5, 0.8, lx, F + 1.5, gz - 0.85)
+      solidBox(0.7, CEIL / 2, 0.8, lx, F + CEIL / 2, gz - 0.85)
     }
   }
 
@@ -1396,15 +1429,15 @@ export function buildCabin(scene) {
   const exitPlane = new PlaneGeometry(0.3, 0.12)
   for (const dz of doorZ) {
     for (const s of [-1, 1]) {
-      const fr = add(S, tint(hullPatch(R - 0.035, s, 0.0, 2.1, dz - 0.6, dz + 0.6, 6), '#9aa1ad'), M.paint)
+      const fr = add(S, tint(hullPatch(R - 0.035, s, 0.0, 2.4, dz - 0.6, dz + 0.6, 6), '#9aa1ad'), M.paint)
       fr.position.set(X, F, 0)
-      const door = add(S, tint(hullPatch(R - 0.05, s, 0.05, 2.04, dz - 0.55, dz + 0.55, 6), '#eef0f3'), M.paint)
+      const door = add(S, tint(hullPatch(R - 0.05, s, 0.05, 2.34, dz - 0.55, dz + 0.55, 6), '#eef0f3'), M.paint)
       door.position.set(X, F, 0)
       P(S, rbox(0.06, 0.08, 0.44, 0.02, 1), '#5a6170', X + s * (hullX(1.05) - 0.075), F + 1.05, dz)
       P(S, new BoxGeometry(0.03, 0.03, 0.8), '#d0d5dc', X + s * (hullX(1.6) - 0.08), F + 1.6, dz)
-      const sx = X + s * (hullX(2.3) - 0.3)
-      P(S, new BoxGeometry(0.32, 0.14, 0.03), '#e6e8ec', sx, F + 2.3, dz - 0.62)
-      add(S, exitPlane, M.exit, sx, F + 2.3, dz - 0.6)
+      const sx = X + s * (hullX(2.55) - 0.3)
+      P(S, new BoxGeometry(0.32, 0.14, 0.03), '#e6e8ec', sx, F + 2.55, dz - 0.62)
+      add(S, exitPlane, M.exit, sx, F + 2.55, dz - 0.6)
       // floor path lights toward the door
       for (let k = 1; k <= 4; k++) add(S, new BoxGeometry(0.06, 0.01, 0.06), M.light, X + s * (AX + 0.55 + k * 0.4), F + 0.012, dz)
     }
@@ -1412,13 +1445,13 @@ export function buildCabin(scene) {
 
   // Colliders: floor, walls, ends, ceiling. The bins (side, full length; centre, Premium + Economy) are
   // solid too, so the chase camera stops at them instead of swinging into the hull.
-  solidBox(4, 0.25, len / 2 + 0.5, X, F - 0.25, zc)
-  for (const s of [-1, 1]) solidBox(0.25, 1.8, len / 2, X + s * 3.95, F + 1.8, zc)
-  for (const s of [-1, 1]) solidBox(0.75, 0.6, len / 2, X + s * 3.2, F + 2.65, zc)
-  solidBox(0.95, 0.4, (cbZ1 - cbZ0) / 2, X, F + 2.62, (cbZ0 + cbZ1) / 2)
-  solidBox(4, 1.8, 0.25, X, F + 1.8, zFront - 0.2)
-  solidBox(4, 1.8, 0.25, X, F + 1.8, zBack + 0.2)
-  solidBox(4, 0.25, len / 2, X, F + CEIL + 0.3, zc)
+  solidBox(4.5, 0.25, len / 2 + 0.5, X, F - 0.25, zc)
+  for (const s of [-1, 1]) solidBox(0.25, 1.9, len / 2, X + s * (hullX(0) + 0.25), F + 1.9, zc)
+  for (const s of [-1, 1]) solidBox(0.85, (CEIL - BY) / 2 + 0.05, len / 2, X + s * (BX + 0.85), F + (CEIL + BY) / 2, zc)
+  solidBox(0.95, (CEIL - 2.22 - LIFT) / 2, (cbZ1 - cbZ0) / 2, X, F + (CEIL + 2.22 + LIFT) / 2, (cbZ0 + cbZ1) / 2)
+  solidBox(4.5, CEIL / 2 + 0.3, 0.25, X, F + CEIL / 2, zFront - 0.2)
+  solidBox(4.5, CEIL / 2 + 0.3, 0.25, X, F + CEIL / 2, zBack + 0.2)
+  solidBox(4.5, 0.25, len / 2, X, F + CEIL + 0.3, zc)
 
   const baked = bake(S, false)
   for (const im of instanced) baked.add(im)
@@ -1472,7 +1505,10 @@ export function buildCabin(scene) {
     meal: { cove: '#ffe2b0', wash: 0.06, beam: 0.34, sky: '#ffffff', stars: 0.8 },
     night: { cove: '#3f5bff', wash: 0.018, beam: 0.06, sky: '#7a86c8', stars: 1.4 },
     landing: { cove: '#ffd0a0', wash: 0.055, beam: 0.36, sky: '#ffc49a', stars: 0.6 },
+    alarm: { cove: '#ff2020', wash: 0.16, beam: 0.1, sky: '#ffb0a0', stars: 0.3, flash: 7 }, // someone pulled the exit door handle
+    storm: { cove: '#5a6ac8', wash: 0.02, beam: 0.02, sky: '#4a5266', stars: 0.3, flicker: true }, // events.js: flying through a storm
   }
+  let bolt = 0 // lightning: a white flash through the windows (+ a little on the walls), fading
   const cur = { cove: new Color(MOODS.board.cove), wash: 0.05, beam: 0.22, sky: new Color('#ffffff'), stars: 0.6 }
   let mood = MOODS.board
   const tgt = new Color()
@@ -1498,6 +1534,24 @@ export function buildCabin(scene) {
     // Where each class's crew member stands: just aft of the curtain in front of that class.
     posts: zones.map((zn) => (zn.curtain == null ? null : { x: X, z: zn.curtain + (zn.index === 3 ? 1.75 : 0.62), yaw: 0 })),
     rowZ: (row) => rowZ.get(row) ?? zc,
+    lavs,
+    galleyF,
+    hullX,
+    ceil: CEIL,
+    // Shared materials for airport/deck.js (the cockpit, the spiral stair, the Sky Lounge).
+    mats: M,
+    signMats,
+    // Emergency exits (the handle side of each door, both sides of the cabin): { x, z, side }.
+    exits: doorZ.flatMap((dz) => [-1, 1].map((s) => ({ x: X + s * (hullX(1.05) - 0.1), z: dz, side: s }))),
+    // Where the crew can cross from one aisle to the other (galleys and the door cross-aisles).
+    crossZ: [galleyF.z1 + 0.35, ...doorZ, backGalley.z0 + 0.35].sort((a, b) => a - b),
+    // Crew-only floor: behind the First bar, the back galley counter (passengers get told off here).
+    // The back one is only the counter block between the two aisles (aisles sit at X +/- FLIGHT.aisle, so
+    // walking the aisles to the back and to the lavatories is always allowed).
+    galleyZones: [
+      { name: 'the front galley', x0: X - 4, x1: X + 4, z0: zFront, z1: galleyF.z1 - 0.15 },
+      { name: 'the back galley', x0: X - 1.0, x1: X + 1.0, z0: backGalley.z0 + 0.9, z1: zBack },
+    ],
     seatsOf,
     // The class zone at z (the mid galley belongs to Economy; the front galley + bar to First).
     classAt(zq) {
@@ -1516,6 +1570,10 @@ export function buildCabin(scene) {
     },
     setSky(speed) {
       scroll = speed
+    },
+    // A lightning strike (events.js): k 0..1.
+    lightning(k = 1) {
+      bolt = Math.max(bolt, k)
     },
     setSeatbelt(on) {
       belt = on
@@ -1548,13 +1606,28 @@ export function buildCabin(scene) {
       cur.beam += (mood.beam - cur.beam) * k
       cur.sky.lerp(tgt.set(mood.sky), k)
       cur.stars += (mood.stars - cur.stars) * k
-      retint(M.light, cur.cove)
-      retint(M.centreLight, cur.cove)
-      M.paint.emissive.copy(cur.cove).multiplyScalar(cur.wash)
+      let fl = mood.flash ? 0.35 + 0.65 * Math.abs(Math.sin(clock * mood.flash)) : 1
+      if (mood.flicker && Math.sin(clock * 23) * Math.sin(clock * 7.3) > 0.82) fl = 0.25 // the storm makes the lights flicker
+      bolt = Math.max(0, bolt - dt * 2.6)
+      retint(M.light, tgt.copy(cur.cove).multiplyScalar(fl))
+      retint(M.centreLight, tgt)
+      M.paint.emissive.copy(cur.cove).multiplyScalar(cur.wash * fl)
       M.hull.emissive.copy(cur.cove).multiplyScalar(cur.wash)
       M.beam.opacity = cur.beam * (0.85 + Math.sin(clock * 0.7) * 0.15)
       M.window.color.copy(cur.sky)
       M.window.emissive.copy(cur.sky)
+      if (bolt > 0) {
+        const b = bolt * bolt
+        M.window.emissive.r += b * 3
+        M.window.emissive.g += b * 3
+        M.window.emissive.b += b * 3.4
+        M.paint.emissive.r += b * 0.35
+        M.paint.emissive.g += b * 0.38
+        M.paint.emissive.b += b * 0.45
+        M.hull.emissive.r += b * 0.3
+        M.hull.emissive.g += b * 0.32
+        M.hull.emissive.b += b * 0.4
+      }
       retint(M.starsA, '#ffffff', cur.stars * (0.6 + 0.4 * Math.sin(clock * 1.7)))
       retint(M.starsB, '#ffffff', cur.stars * (0.6 + 0.4 * Math.sin(clock * 1.3 + 2)))
       sky.offset.x = (sky.offset.x + dt * scroll) % 1

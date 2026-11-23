@@ -1,0 +1,333 @@
+/* Breaking the rules on board (rules.js): the wanted widget (suspicion bar + record stars + stamina) at the
+   top centre, the chase / hide / alarm vignettes, and the context buttons (HIDE, LEAVE, FLUSH, PULL HANDLE)
+   above the seat bar. */
+.wanted {
+  position: absolute;
+  top: calc(max(var(--safe-t), var(--top-y, 0px)) + clamp(8px, 1.6vmin, 18px));
+  left: var(--top-x, 50%);
+  transform: translateX(-50%) translateY(-30%) scale(0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.35em 0.7em 0.4em;
+  border-radius: 0.8em;
+  background: rgba(14, 20, 38, 0.78);
+  box-shadow: 0 0 0 2px var(--ink), 0 0.3em 0.8em rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-weight: 700;
+  font-size: clamp(0.72rem, 1.1vmin + 0.4rem, 1rem);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.35s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+.wanted.show {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+.w-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+}
+.w-eye {
+  font-size: 1.25em;
+  line-height: 1;
+}
+.hot .w-eye,
+.chase .w-eye {
+  animation: wEye 0.5s ease-in-out infinite;
+}
+@keyframes wEye {
+  50% {
+    transform: scale(1.3) rotate(-8deg);
+  }
+}
+.w-bar {
+  position: relative;
+  width: clamp(90px, 18vmin, 170px);
+  height: 0.75em;
+  border-radius: 1em;
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.w-bar i,
+.w-sbar i {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: inherit;
+}
+.w-bar i {
+  background: linear-gradient(90deg, #ffe14a, #ff9a1a 60%, #ff3a3a);
+}
+.chase .w-bar i {
+  background: repeating-linear-gradient(-45deg, #ff3a3a 0 8px, #b8121f 8px 16px);
+  animation: wStripes 0.5s linear infinite;
+}
+@keyframes wStripes {
+  to {
+    background-position: 22px 0;
+  }
+}
+.w-stars {
+  letter-spacing: 0.05em;
+  font-size: 1.05em;
+}
+.w-stars b {
+  color: rgba(255, 255, 255, 0.22);
+}
+.w-stars b.on {
+  color: #ffd84a;
+  text-shadow: 0 0 6px rgba(255, 200, 40, 0.7);
+  animation: sbPop 0.5s cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+.w-state {
+  font-size: 0.85em;
+  letter-spacing: 0.06em;
+  color: #ffe14a;
+  min-height: 1em;
+}
+.w-state:empty {
+  display: none;
+}
+.chase .w-state {
+  color: #ff5a5a;
+  animation: wBlink 0.5s steps(2) infinite;
+}
+@keyframes wBlink {
+  50% {
+    opacity: 0.35;
+  }
+}
+.w-stam {
+  display: none;
+  align-items: center;
+  gap: 0.35em;
+  font-size: 0.85em;
+}
+.w-stam.show {
+  display: flex;
+}
+.w-sbar {
+  position: relative;
+  width: clamp(70px, 13vmin, 120px);
+  height: 0.5em;
+  border-radius: 1em;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.w-sbar i {
+  background: linear-gradient(90deg, #7cff6b, #2fd4c0);
+}
+.w-stam.tired .w-sbar i {
+  background: #ff5a5a;
+}
+.w-stam.tired span {
+  animation: wBlink 0.4s steps(2) infinite;
+}
+
+/* Full-screen vignettes (never take input). */
+.rules-vig {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+.rules-vig.chase {
+  opacity: 1;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(220, 20, 30, 0.45) 100%);
+  animation: rvPulse 0.75s ease-in-out infinite;
+}
+.rules-vig.alarm {
+  opacity: 1;
+  background: rgba(255, 20, 30, 0.18);
+  animation: rvAlarm 0.45s steps(2) infinite;
+}
+.rules-vig.hide {
+  opacity: 1;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.1) 30%, rgba(4, 8, 20, 0.85) 100%);
+}
+@keyframes rvPulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@keyframes rvAlarm {
+  50% {
+    opacity: 0.2;
+  }
+}
+.rv-text {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translateX(-50%);
+  max-width: 86vw;
+  text-align: center;
+  font-weight: 700;
+  font-size: clamp(0.95rem, 2vmin + 0.4rem, 1.6rem);
+  color: #fff;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.2em var(--ink);
+  animation: rvBreath 2.2s ease-in-out infinite;
+}
+.rv-text:empty {
+  display: none;
+}
+@keyframes rvBreath {
+  50% {
+    transform: translateX(-50%) scale(1.05);
+  }
+}
+
+/* Context buttons over the seat bar. */
+.rulebar {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: min(94vw, 640px);
+  justify-content: center;
+  gap: clamp(6px, 1.2vmin, 12px);
+  margin-bottom: 0.35em;
+  pointer-events: none;
+}
+.act-slot {
+  flex-direction: column;
+  align-items: center;
+}
+.rb-btn {
+  pointer-events: auto;
+  position: relative;
+  display: none;
+  align-items: center;
+  gap: 0.35em;
+  min-height: 44px;
+  padding: 0.2em 0.9em !important;
+  border-radius: 1.2em;
+  font-weight: 700;
+  font-size: clamp(0.85rem, 1.4vmin + 0.4rem, 1.15rem);
+  color: #fff !important;
+  background: linear-gradient(#7cc6ff, #2f7fe0) !important;
+  box-shadow: 0 0 0 3px var(--ink), inset 0 -0.2em 0 rgba(0, 0, 0, 0.2), 0 0.2em 0.5em rgba(0, 0, 0, 0.35);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.15em rgba(0, 0, 0, 0.35);
+  animation: sbPop 0.4s cubic-bezier(0.2, 1.8, 0.4, 1);
+  touch-action: none;
+}
+.rb-btn.show {
+  display: inline-flex;
+}
+.rb-btn:active {
+  transform: scale(0.92);
+}
+.rb-btn.green {
+  background: linear-gradient(#8ef56a, #38b52e) !important;
+}
+.rb-btn.red {
+  background: linear-gradient(#ff7a85, #e3263c) !important;
+  animation: sbPop 0.4s cubic-bezier(0.2, 1.8, 0.4, 1), sbWarn 0.8s 0.4s ease-in-out infinite;
+}
+.rb-btn.grey {
+  background: linear-gradient(#c9d1de, #8e99ab) !important;
+}
+.rb-ico {
+  font-size: 1.25em;
+  -webkit-text-stroke: 0;
+}
+.rb-k {
+  font-size: 0.7em;
+  min-width: 1.6em;
+  padding: 0 0.3em;
+  border-radius: 0.4em;
+  color: var(--ink);
+  background: #fff;
+  -webkit-text-stroke: 0;
+}
+.rb-k:empty,
+.touch-ui .rb-k {
+  display: none;
+}
+.has-act.has-rulebar .prompt,
+.has-act.has-rulebar .status {
+  bottom: calc(var(--safe-b) + clamp(96px, 16vmin, 170px) + clamp(60px, 9vmin, 90px) + 54px);
+}
+
+/* The cockpit keypad (luxury.js). */
+.win.w-keypad {
+  width: min(86vw, 320px);
+}
+.kp-screen {
+  margin: 0 auto 0.5em;
+  padding: 0.3em;
+  border-radius: 0.5em;
+  background: #0b1a10;
+  box-shadow: inset 0 0 0 3px #1d2b22;
+  text-align: center;
+}
+.kp-code {
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  font-size: 2.2em;
+  letter-spacing: 0.4em;
+  color: #7cff6b;
+  text-shadow: 0 0 8px rgba(124, 255, 107, 0.7);
+}
+.kp-screen.ok {
+  background: #0f3a18;
+}
+.kp-screen.bad {
+  animation: kpBad 0.4s;
+}
+.kp-screen.bad .kp-code {
+  color: #ff5a5a;
+}
+@keyframes kpBad {
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+.kp-hint {
+  margin-bottom: 0.6em;
+  text-align: center;
+  font-size: 0.85em;
+  color: #4a5468;
+}
+.kp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.45em;
+}
+.kp-key {
+  min-height: 48px;
+  border-radius: 0.6em;
+  font-weight: 700;
+  font-size: 1.4em;
+  color: var(--ink) !important;
+  background: linear-gradient(#ffffff, #d6dce6) !important;
+  box-shadow: 0 0 0 2px var(--ink), inset 0 -0.15em 0 rgba(0, 0, 0, 0.15);
+}
+.kp-key:active {
+  transform: scale(0.92);
+}
+.kp-key.ok {
+  color: #fff !important;
+  background: linear-gradient(#8ef56a, #38b52e) !important;
+}
+.kp-key.clr {
+  color: #fff !important;
+  background: linear-gradient(#ff7a85, #e3263c) !important;
+}
+@media (max-width: 560px) {
+  .rb-btn {
+    padding: 0.15em 0.55em !important;
+    font-size: 0.8rem;
+  }
+}

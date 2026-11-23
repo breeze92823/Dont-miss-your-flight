@@ -1,0 +1,416 @@
+/* Phase 4: the SCREEN / PHOTO seat-bar buttons, the seat-screen window (movies, games, cameras). */
+.seatbar.seated .sb-tv.show,
+.seatbar .sb-photo.show {
+  display: flex;
+}
+.sb-tv {
+  background: radial-gradient(circle at 35% 30%, #c9a8ff, #7a4ae0 70%, #5228b0);
+}
+.sb-tv.on {
+  box-shadow: 0 0 0 3px var(--ink), 0 0 0 7px rgba(170, 130, 255, 0.55), 0 0.2em 0.5em rgba(0, 0, 0, 0.35);
+}
+.sb-photo {
+  background: radial-gradient(circle at 35% 30%, #9af0e0, #1fb8a0 70%, #128a76);
+}
+
+.win.w-tv {
+  width: min(94vw, 720px);
+  max-height: min(90dvh, 720px);
+}
+.w-tv .win-body {
+  padding: 0.6em 0.7em 0.9em;
+  background: radial-gradient(120% 90% at 50% 0%, #2a3150, #12151f);
+  color: #fff;
+}
+.tv-tabs {
+  display: flex;
+  gap: 0.4em;
+  margin-bottom: 0.6em;
+}
+.tv-tab {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 0.6em;
+  font-weight: 700;
+  color: #cfd6ea !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+.tv-tab.on {
+  color: #fff !important;
+  background: linear-gradient(#7a9cff, #4a62e0) !important;
+  box-shadow: 0 0 0 2px #0b0d14, 0 0 0.8em rgba(122, 156, 255, 0.6);
+}
+.tv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+  gap: 0.6em;
+}
+.tv-grid.two {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+}
+.tv-grid.cams {
+  grid-template-columns: repeat(auto-fill, minmax(min(46%, 140px), 1fr));
+}
+.tv-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  min-height: 44px;
+  padding: 0.5em;
+  border-radius: 0.8em;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.1);
+  text-align: center;
+  transition: transform 0.12s;
+}
+.tv-card:active {
+  transform: scale(0.96);
+}
+.tv-poster {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 0.5em;
+  box-shadow: 0 0 0 2px #0b0d14;
+}
+.tv-genre {
+  position: absolute;
+  top: 0.8em;
+  left: 0.8em;
+  padding: 0 0.5em;
+  border-radius: 0.6em;
+  font-size: 0.72em;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.55);
+}
+.tv-name {
+  font-weight: 700;
+  font-size: 1.05em;
+}
+.tv-desc {
+  font-size: 0.8em;
+  color: #b8c0d8;
+}
+.tv-go {
+  margin-top: 0.2em;
+  padding: 0.15em 0.8em;
+  border-radius: 1em;
+  font-weight: 700;
+  font-size: 0.85em;
+  background: linear-gradient(#7af06a, #2fae2a);
+  box-shadow: 0 0 0 2px #0b0d14;
+}
+.tv-big {
+  font-size: 2.4em;
+  line-height: 1.2;
+}
+.tv-tip {
+  margin: 0.7em 0 0;
+  text-align: center;
+  font-size: 0.85em;
+  color: #9fb0d8;
+}
+/* Sky Dodge */
+.tv-game,
+.tv-match {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4em;
+}
+.tv-cnv {
+  width: min(100%, 300px, 46dvh);
+  aspect-ratio: 3 / 4;
+  border-radius: 0.7em;
+  box-shadow: 0 0 0 3px #0b0d14;
+  touch-action: none;
+}
+.tv-ghud {
+  display: flex;
+  gap: 1em;
+  font-weight: 700;
+}
+.tv-ctrl {
+  display: flex;
+  gap: 1.2em;
+}
+.tv-ctrl button {
+  width: 64px;
+  height: 52px;
+  border-radius: 0.7em;
+  font-size: 1.4em;
+  font-weight: 700;
+  color: #fff !important;
+  background: linear-gradient(#7a9cff, #4a62e0) !important;
+  box-shadow: 0 0 0 2px #0b0d14;
+  touch-action: none;
+}
+.tv-ctrl button:active {
+  transform: scale(0.92);
+}
+/* Bag Match */
+.mt-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.45em;
+  width: min(100%, 360px);
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  .mt-grid {
+    grid-template-columns: repeat(6, 1fr);
+    width: min(100%, 460px);
+  }
+}
+.mt-card {
+  position: relative;
+  aspect-ratio: 1;
+  min-height: 44px;
+  border-radius: 0.6em;
+  font-size: 1.7em;
+  perspective: 400px;
+  background: none !important;
+  padding: 0 !important;
+}
+.mt-back,
+.mt-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 0.6em;
+  backface-visibility: hidden;
+  transition: transform 0.3s;
+  box-shadow: 0 0 0 2px #0b0d14;
+}
+.mt-back {
+  color: #fff;
+  background: linear-gradient(135deg, #4a62e0, #7a4ae0);
+}
+.mt-face {
+  background: #fffaf0;
+  transform: rotateY(180deg);
+}
+.mt-card.up .mt-back {
+  transform: rotateY(180deg);
+}
+.mt-card.up .mt-face {
+  transform: rotateY(360deg);
+}
+.mt-card.done .mt-face {
+  background: #d8ffcf;
+  animation: mtDone 0.5s cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+@keyframes mtDone {
+  40% {
+    transform: rotateY(360deg) scale(1.15);
+  }
+}
+.tv-over {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  border-radius: 0.7em;
+  background: rgba(10, 12, 20, 0.78);
+  animation: winIn 0.35s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+.tv-over b {
+  font-size: 1.6em;
+  color: #ffd84a;
+}
+.tv-won {
+  font-weight: 700;
+  color: #7af06a;
+}
+
+/* Watching a movie through your eyes / an outside camera: only this slim bar stays. */
+.hud.watching > :not(.tv-bar):not(.big):not(.toasts):not(.storm-flash):not(.win-back) {
+  display: none !important;
+}
+body.watching .touch-root {
+  display: none !important;
+}
+.tv-bar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(10px + var(--safe-b, 0px));
+  transform: translateX(-50%);
+  display: none;
+  gap: 8px;
+  pointer-events: auto;
+}
+.hud.watching .tv-bar {
+  display: flex;
+}
+.tvb {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  min-height: 44px;
+  padding: 0 0.9em !important;
+  border-radius: 2em;
+  font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  color: #fff !important;
+  background: rgba(16, 20, 32, 0.72) !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+  touch-action: manipulation;
+}
+.tvb.red span,
+.tvb.green span,
+.tvb.blue span,
+.tvb.pink span {
+  font-size: 1.1em;
+}
+.tvb.red {
+  box-shadow: 0 0 0 2px #ff6a7a;
+}
+.tvb.green {
+  box-shadow: 0 0 0 2px #7af06a;
+}
+.tvb.pink {
+  box-shadow: 0 0 0 2px #ff8ab0;
+}
+.tvb:active {
+  transform: scale(0.92);
+}
+
+/* --- Phones: the flight buttons live in two side docks (seatScreen.js placeDocks) ----------------------
+   Left: the context buttons (TURN AROUND, TOY, BED, HIDE...) as a 2-column grid of rounded tiles.
+   Right: the seat bar (BELT / MENU / EAT / SCREEN / PHOTO) as a column. The middle stays clear. */
+.fdock {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+}
+@media (max-width: 700px), (max-height: 560px) {
+  .fdock {
+    display: flex;
+  }
+  .mode-cutscene .fdock {
+    display: none;
+  }
+  .fdock-l {
+    left: calc(6px + var(--safe-l));
+    bottom: calc(var(--safe-b) + 184px);
+    align-items: flex-end;
+  }
+  .fdock-r {
+    right: calc(6px + var(--safe-r));
+    bottom: calc(var(--safe-b) + 162px);
+  }
+  .fdock .rulebar {
+    display: grid;
+    grid-template-columns: repeat(2, 52px);
+    gap: 6px;
+    max-width: none;
+    margin: 0;
+    padding: 3px;
+  }
+  .fdock .rb-btn {
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    width: 52px;
+    height: 50px;
+    min-height: 44px;
+    padding: 2px !important;
+    border-radius: 14px;
+    font-size: 0.5rem !important;
+    line-height: 1.05;
+    text-align: center;
+    -webkit-text-stroke: 0.12em rgba(0, 0, 0, 0.4);
+  }
+  .fdock .rb-ico {
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+  .fdock .rb-l {
+    max-width: 100%;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+  }
+  .fdock .rb-k {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    font-size: 0.6rem;
+  }
+  .fdock .seatbar {
+    position: relative;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+  .fdock .sb-btn {
+    width: 48px;
+    height: 48px;
+  }
+  .fdock .sb-eat {
+    width: 54px;
+    height: 54px;
+  }
+  .fdock .sb-l {
+    font-size: 0.5rem;
+  }
+  .fdock .sb-k {
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    font-size: 0.6rem;
+  }
+  .fdock .sb-buff {
+    position: absolute;
+    right: calc(100% + 6px);
+    bottom: 0;
+    white-space: nowrap;
+  }
+}
+/* landscape phones: both docks sit higher, between the top buttons and the bottom controls; the seat bar
+   becomes a 2-column grid */
+@media (max-height: 560px) and (orientation: landscape) {
+  /* the left edge is taken (the platform's toolbar + chat, the tiles, the joystick): the context buttons
+     line up along the bottom edge between the left controls and Skip Time, wrapping upward */
+  .fdock-l {
+    left: calc(118px + var(--safe-l));
+    bottom: calc(var(--safe-b) + 6px);
+    width: calc(50vw - 186px);
+  }
+  .touch-ui .fdock-l {
+    left: calc(140px + var(--safe-l));
+    width: calc(50vw - 100px);
+  }
+  .fdock-l .rulebar {
+    display: flex;
+    flex-wrap: wrap-reverse;
+    justify-content: flex-end;
+  }
+  .fdock-l .rb-btn {
+    width: 50px;
+    height: 48px;
+  }
+  .fdock-r {
+    bottom: auto;
+    top: calc(var(--safe-t) + 110px);
+    right: calc(78px + var(--safe-r));
+  }
+  .fdock-r .seatbar {
+    display: grid;
+    grid-template-columns: repeat(3, 48px);
+    direction: rtl;
+  }
+}

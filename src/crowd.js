@@ -497,6 +497,7 @@ export function createCrowd(scene, max = 64) {
       hasBag: o.bag !== null && o.bag !== false,
       bagTilt: 0,
       name: o.name ?? pick(NAMES),
+      k: o.scale ?? 1, // body size (a kid: ~0.7)
       t: Math.random() * 10,
       data: {},
     }
@@ -557,6 +558,7 @@ export function createCrowd(scene, max = 64) {
   const q = new Quaternion()
   const p = new Vector3()
   const one = new Vector3(1, 1, 1)
+  const size = new Vector3(1, 1, 1)
   const ax = new Vector3(1, 0, 0)
   const az = new Vector3(0, 0, 1)
   const ay = new Vector3(0, 1, 0)
@@ -599,17 +601,21 @@ export function createCrowd(scene, max = 64) {
       n.lookT = 2 + Math.random() * 5
       n.headTarget = (Math.random() - 0.5) * 1.2
     }
-    n.headYaw += ((n.headTarget ?? 0) * (1 - move) - n.headYaw) * Math.min(1, dt * 3)
+    // n.data.head: a fixed head turn (a neighbour looking at you), else wandering
+    const ht = n.data.head ?? (n.headTarget ?? 0) * (1 - move)
+    n.headYaw += (ht - n.headYaw) * Math.min(1, dt * (n.data.head != null ? 6 : 3))
 
     const koE = n.ko * n.ko * (3 - 2 * n.ko)
     q.setFromAxisAngle(ay, n.yaw)
     if (koE > 0) q.multiply(qb.setFromAxisAngle(ax, -koE * Math.PI * 0.5))
-    base.compose(p.set(n.x, n.y + bob + breathe * (1 - move) + jump + koE * 0.15, n.z), q, one)
+    base.compose(p.set(n.x, n.y + bob + breathe * (1 - move) + jump + koE * 0.15, n.z), q, size.setScalar(n.k))
 
     // Legs (seated: straight out in front, like a blocky avatar in a chair)
     const sitting = n.mode === 'sit' && koE < 0.3
-    const la = sitting ? -1.5 : -sw
-    const ra = sitting ? -1.5 : sw
+    // a kid kicking the seat in front: the legs swing hard, one after the other
+    const kick = sitting && n.data.kick > 0 ? Math.sin(n.t * 13) * 0.55 : 0
+    const la = sitting ? -1.5 + kick : -sw
+    const ra = sitting ? -1.5 - kick : sw
     limb(parts.leg, s * 2, LEG.x, LEG.hipY, 0, la)
     limb(parts.leg, s * 2 + 1, -LEG.x, LEG.hipY, 0, ra)
     limb(parts.shoe, s * 2, LEG.x, LEG.hipY, 0, la)
@@ -662,6 +668,27 @@ export function createCrowd(scene, max = 64) {
         lx = rx = -0.6
         lz = 0.12
         rz = -0.12
+      }
+      if (n.data.talk) {
+        // chatting away: both hands gesturing
+        rx = -1.1 + Math.sin(n.t * 6.5) * 0.45
+        rz = -0.25 + Math.sin(n.t * 4.1) * 0.2
+        lx = -0.8 + Math.sin(n.t * 5.3 + 1) * 0.3
+        lz = 0.2
+      } else if (n.data.clap > 0) {
+        n.data.clap -= dt
+        lx = rx = -1.35
+        lz = 0.35 + Math.sin(n.t * 26) * 0.25
+        rz = -lz
+      } else if (n.data.mask) {
+        // holding an oxygen mask to the face
+        lx = rx = -2.35
+        lz = 0.55
+        rz = -0.55
+      } else if (n.data.toy) {
+        // waving a toy plane about
+        rx = -2.2 + Math.sin(n.t * 4) * 0.5
+        rz = -0.4 + Math.cos(n.t * 4) * 0.4
       }
       if (n.data.stretch > 0) {
         n.data.stretch -= dt
