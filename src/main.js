@@ -32,7 +32,7 @@ import { createTrolls } from './trolls.js'
 import { createGuards } from './guards.js'
 import { createTools } from './tools.js'
 import { createJobs } from './jobs.js'
-import { claimAdReward, initNet, meIdle, net, onTrolled, sendEmote, sendPresence, setPresenceSource, wantLine } from './net.js'
+import { claimAdReward, initNet, meIdle, net, onCabin, onTrolled, sendCabin, sendEmote, sendPresence, setPresenceSource, wantLine } from './net.js'
 import { createRemotePassengers } from './remote.js'
 import { createEmotePlayer } from './emotes.js'
 import { ADS } from './config.js'
@@ -149,7 +149,22 @@ security = createSecurity({ scene, crowd, hall: secHall, interior, fx, hud, stor
 // Past security: the concourse + your gate (boarding.js), then the flight + destination (flight.js).
 let flight = null
 const boarding = createBoarding({ scene, crowd, gates, secHall, hud, store, queue, security, fx, onBoarded: () => flight.board(), remote })
-flight = createFlight({ scene, crowd, cabin, city, hud, store, queue, fx, botShare: () => remote.botShare(), seatTaken: (s) => remote.seatTaken(s), others: () => remote.actors([]), onArrived: () => showResultsAd(), onFlyAgain: () => {
+const headV = new Vector3()
+flight = createFlight({ scene, crowd, cabin, city, hud, store, queue, fx, botShare: () => remote.botShare(), seatTaken: (s) => remote.seatTaken(s), others: () => remote.actors([]), sayMe: (text, s) => crowd.say(owner, text, s), shake: (a, d) => trolls.shake(a, d), headPos: (out) => {
+  // your head (the neck pivot) in world space, for the food on its way to your mouth
+  const neck = avatar?.nodes?.Neck1
+  if (!neck || !playerGroup.visible) return false
+  neck.getWorldPosition(out ?? headV)
+  return true
+}, setDisguise: (on) => setDisguise(on), wear: (obj) => wearOnHead(obj), sendCabin, onCabin, renderer, canvas: renderer.domElement, avatarYaw: () => playerGroup.rotation.y, capture: () => {
+  // photo mode: draw this frame now and read it back before the browser clears the buffer
+  postfx.render()
+  try {
+    return renderer.domElement.toDataURL('image/jpeg', 0.92)
+  } catch {
+    return null
+  }
+}, onArrived: () => showResultsAd(), onFlyAgain: () => {
   bloxity.hideScreenAd()
   boarding.reset()
   security.reset()
@@ -255,6 +270,31 @@ let generation = 0
 let avatarReady = false
 let hat = null
 
+// The pilot uniform from the crew-rest locker (luxury.js): a pilot's cap on your avatar.
+let disguiseHat = null
+function setDisguise(on) {
+  if (disguiseHat) {
+    disguiseHat.parent?.remove(disguiseHat)
+    disguiseHat = null
+  }
+  if (!on || !avatar) return
+  animator?.rig.resetToBindPose()
+  avatar.rotation.set(0, 0, 0)
+  avatar.position.y = 0
+  disguiseHat = makeHat('pilot')
+  wearHat(avatar, disguiseHat, playerGroup)
+}
+// Phase 4: headphones / the oxygen mask on your head. obj's children are offset from the top of the head
+// (its frame faces the avatar's front, +Z).
+function wearOnHead(obj) {
+  obj.parent?.remove(obj)
+  if (!avatar) return false
+  animator?.rig.resetToBindPose()
+  avatar.rotation.set(0, 0, 0)
+  avatar.position.y = 0
+  wearHat(avatar, obj, playerGroup)
+  return true
+}
 function applyHat() {
   if (hat) {
     hat.parent?.remove(hat)
@@ -338,6 +378,7 @@ function myScene() {
 setPresenceSource(() => {
   const s = myScene()
   const anim = seatedNow ? 'sit' : security.pose ? 'tpose' : document.body.classList.contains('troll-ko') ? 'ko' : ''
+  const fp = flight.presence()
   return {
     pose: { x: owner.x, y: owner.y, z: owner.z, yaw: owner.facing, speed: owner.speed, grounded: animIn.grounded, anim },
     trip: {
@@ -346,7 +387,9 @@ setPresenceSource(() => {
       line: queue.inLine ? 'checkin' : security.inLine ? 'security' : boarding.inLine ? 'boarding' : '',
       hold: queue.hold || security.hold || boarding.hold || '',
       suitcase: store.data.suitcase,
-      hat: store.data.hat || '',
+      hat: fp.hat || store.data.hat || '',
+      cls: fp.cls,
+      crew: fp.crew,
       vip: store.has('vip'),
       pack: backpack.on,
       bag: suitcase.state === 'follow' && suitcase.root.visible,
@@ -500,15 +543,27 @@ function tick(dt, draw = true) {
     animIn.overlayWeight = a.overlayWeight
   } else {
     const p = player.renderPosition
-    playerGroup.visible = !firstPerson && !jobs.hidesPlayer() // hidden in the cockpit (Be Pilot)
+    playerGroup.visible = !firstPerson && !jobs.hidesPlayer() && !flight.hidesPlayer() // hidden in the cockpit (Be Pilot) / a lavatory / under a blanket
     playerGroup.position.set(p.x, p.y, p.z)
     playerGroup.rotation.set(0, player.facing, 0)
+    // lying flat in a First / Business bed
+    const bp = flight.bodyPose()
+    if (bp) {
+      playerGroup.position.set(bp.x, bp.y, bp.z)
+      playerGroup.rotation.x = bp.rx
+    }
     owner.speed = Math.hypot(player.velocity.x, player.velocity.z)
     animIn.grounded = player.grounded
     animIn.speed = owner.speed
     animIn.verticalVelocity = player.velocity.y
     animIn.overlay = null
     animIn.overlayWeight = 0
+    // standing photo poses / peekaboo in the aisle (flight.js)
+    const sp = flight.standPose()
+    if (sp) {
+      animIn.overlay = sp
+      animIn.overlayWeight = 1
+    }
   }
   owner.x = playerGroup.position.x
   owner.y = playerGroup.position.y
@@ -516,7 +571,7 @@ function tick(dt, draw = true) {
   owner.facing = playerGroup.rotation.y
   owner.indoor = indoor > 0.5
   if (seated && !(cutscene && !cutscene.done)) {
-    animIn.overlay = SIT
+    animIn.overlay = flight.pose() ?? SIT // eating, drinking, tugging the seatbelt on board
     animIn.overlayWeight = 1
     animIn.speed = 0
     animIn.grounded = true
@@ -567,7 +622,7 @@ function tick(dt, draw = true) {
     powers.update(dt, t)
     jobs.update(dt) // Be Security / Be Pilot (before the camera: the jet moves; before tools: they may pin passengers)
     // Camera: a gate / flight cutscene drives it; otherwise the chase cam, blended in after a cutscene.
-    const directed = jobs.camera(camera) || boarding.camera(camera) || flight.camera(camera)
+    const directed = jobs.camera(camera) || boarding.camera(camera) || flight.camera(camera, dt)
     if (directed) {
       wasDirected = true
       updateCamera(chaseCam, dt)

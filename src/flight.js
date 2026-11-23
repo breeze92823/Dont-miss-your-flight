@@ -17,6 +17,16 @@ import { sfx, turbineLoop } from './audio.js'
 import { lockSeat, seating, sit, standUp } from './seating.js'
 import { fmtClock as clock } from './airport/gates.js'
 import { createCabinCrew } from './cabinCrew.js'
+import { createInflight } from './inflight.js'
+import { createRules } from './rules.js'
+import { createLuxury } from './luxury.js'
+import { buildDeck } from './airport/deck.js'
+import { createSkyView } from './airport/skyView.js'
+import { createNeighbours } from './neighbours.js'
+import { createSeatScreen } from './seatScreen.js'
+import { createEvents } from './events.js'
+import { createPhoto } from './photo.js'
+import { createCrewShift } from './crewShift.js'
 
 const rr = (a, b) => a + Math.random() * (b - a)
 const pick = (a) => a[Math.floor(Math.random() * a.length)]
@@ -25,9 +35,13 @@ const CLASS_OF = { first: 0, business: 1, premium: 2, economy: 3 }
 
 // seatTaken(seat): a real passenger is already sitting there (the cabin is shared by every flight).
 // others(): the real passengers drawn in the cabin (they part the curtains too).
-export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx, onFlyAgain, onArrived, botShare = () => 1, seatTaken = () => false, others = () => [] }) {
+// sayMe(text, s): a bubble over you. shake(amp, s): camera shake. headPos(out): your head in world space.
+// setDisguise(on): the pilot cap on your avatar (main.js). wear(obj): something on your head (headphones, the
+// oxygen mask). Photo mode: canvas (the game canvas), capture() (render + data URL), avatarYaw().
+// sendCabin / onCabin: passenger-to-passenger messages on board (net.js).
+export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx, onFlyAgain, onArrived, botShare = () => 1, seatTaken = () => false, others = () => [], sayMe, shake, headPos, setDisguise, wear = () => false, canvas, capture, avatarYaw, renderer = null, sendCabin, onCabin }) {
   const F = cabin.floorY
-  const st = { mode: 'off', t: 0, cut: null, left: FLIGHT.cruiseTime, seat: null, code: '24E', cls: 3, moved: null, shake: 0, turbIn: 40, chatIn: 5, hornIn: 3, cruiseT: 0, offer: null, beltT: 0, turbBelt: 0 }
+  const st = { timeK: 1, roarT: 0, bumps: [], mode: 'off', t: 0, cut: null, left: FLIGHT.cruiseTime, seat: null, code: '24E', cls: 3, moved: null, shake: 0, turbIn: 40, chatIn: 5, hornIn: 3, cruiseT: 0, offer: null, beltT: 0, turbBelt: 0 }
   const pax = []
   const peds = []
   let drone = null
@@ -72,6 +86,26 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
       if (!st.offer) cruiseHud()
       return s.code
     },
+    // Punishment: the worst seat on the plane (last row, a middle seat if one is free).
+    downgrade() {
+      const pref = 'EBHDFACGK'
+      const s = cabin.seatsOf(3).filter((q) => q === st.seat || free(q)).sort((a, b) => b.row - a.row || pref.indexOf(a.letter) - pref.indexOf(b.letter))[0]
+      if (!s) return null
+      st.seat = s
+      st.code = s.code
+      st.cls = 3
+      if (queue.result) {
+        queue.result.cls = FLIGHT.classes[3].name.toUpperCase()
+        queue.result.classId = 'economy'
+        queue.result.seat = s.code
+      }
+      if (!st.offer && st.mode === 'cruise') cruiseHud()
+      return s
+    },
+    // The meal service: the dishes land on your tray (inflight.js), ready to eat.
+    serveMeal(seat, ids) {
+      inflight.serve(seat, ids)
+    },
     // The crew's upgrade offer takes over the action button for a while (null gives Skip Time back).
     offer(cfg) {
       st.offer = cfg
@@ -79,7 +113,38 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
       else if (st.mode === 'cruise') cruiseHud()
     },
   }
-  const crew = createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip })
+  // rules.js needs inflight (belt, menu ban), the crew need rules, inflight needs the crew: rules gets a
+  // thin forwarder to inflight, made below.
+  let inflight = null
+  const rules = createRules({ scene, cabin, crowd, hud, store, fx, trip, sayMe, shake, inflight: { get belted() { return inflight.belted }, ban: (t) => inflight.ban(t), eat: () => inflight.eat() } })
+  const crew = createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip, rules })
+  inflight = createInflight({ scene, cabin, crew, hud, store, fx, trip, sayMe, shake, headPos })
+  // The cockpit, the spiral stair + Sky Lounge, the luxury seats (Phase 3).
+  const deck = buildDeck(scene, cabin)
+  const luxury = createLuxury({ scene, cabin, deck, crowd, hud, store, fx, trip, rules, inflight, crew, setDisguise, sayMe, shake, hooks: {
+    bump: (k) => bump(k),
+    roar: () => (st.roarT = 2.6),
+    timeScale: (k) => setTimeK(k, 'bed'),
+  } })
+  // Phase 4: neighbours, the seat screen (+ the outside view), in-flight events, photo mode.
+  const timeKs = {}
+  function setTimeK(k, who) {
+    timeKs[who] = k
+    st.timeK = Object.values(timeKs).reduce((a, b) => a * b, 1)
+  }
+  const sky = createSkyView(scene, cabin)
+  const neighbours = createNeighbours({ scene, cabin, crowd, hud, store, fx, trip, rules, inflight, freeSeat: free, sayMe, shake, wear })
+  const screen = createSeatScreen({ scene, cabin, hud, store, fx, trip, rules, inflight, neighbours, sky, headPos, sayMe, shake, hooks: { timeScale: setTimeK } })
+  const events = createEvents({ scene, cabin, crowd, hud, store, fx, rules, inflight, neighbours, sky, renderer, sayMe, shake, wear, hooks: {
+    bump: (k) => bump(k),
+    turbulence: () => turbulence(true),
+    holdBelt: (s) => (st.turbBelt = Math.max(st.turbBelt, s)),
+    pushTurb: (s) => (st.turbIn = Math.max(st.turbIn, s)),
+  } })
+  rules.claimE = () => events.claimE()
+  const photo = createPhoto({ hud, store, fx, trip, rules, sky, canvas, capture, avatarYaw, headPos, dest: () => dest().name })
+  const shift = createCrewShift({ scene, cabin, crowd, hud, store, fx, trip, rules, inflight, crew, neighbours, others, sendCabin, onCabin, sayMe, shake, wear })
+  const fun = [neighbours, screen, events, photo, shift]
 
   function clearPax() {
     for (const n of pax) crowd.remove(n)
@@ -105,6 +170,7 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
   // The body waits in the aisle beside the row; the avatar is drawn in the seat.
   function sitIn(s, locked) {
     sit(s, { x: s.aisleX, y: F + 0.02, z: s.z }, { locked, quiet: !!locked, cam: { x: s.aisleX, z: s.z + 0.4 } })
+    inflight.seated(!!locked) // the crew buckles you in when they seat you
   }
   const seatMe = (locked) => sitIn(st.seat, locked)
 
@@ -137,8 +203,18 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     cabin.setProgress(0, `${HOME_AIRPORT.name} to ${d.name}`)
     fillCabin(st.seat)
     crew.start()
+    inflight.reset()
+    inflight.setPhase('takeoff')
+    rules.reset()
+    rules.setPhase('takeoff')
+    luxury.board()
+    neighbours.board(st.seat)
+    screen.board()
+    events.board()
+    photo.board()
+    shift.board()
     seatMe(true)
-    setCameraZone({ maxDistance: 5.2, maxPitch: 0.75 })
+    setCameraZone(FLIGHT.camera)
     hud.showBoard(false)
     hud.setMode('cutscene')
     hud.cine.bars(true)
@@ -156,14 +232,14 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     const ax = S.aisleX
     if (c.t < 4.6) {
       // down the aisle, a few rows behind you, looking toward the nose
-      pos.set(ax + 0.05, F + 1.95, Math.min(cabin.zBack - 1.2, S.z + 3.2))
+      pos.set(ax + 0.05, F + 2.5, Math.min(cabin.zBack - 1.2, S.z + 3.6))
       look.set(ax, F + 1.35, cabin.zFront)
       camera.position.copy(pos)
       camera.lookAt(look)
     } else {
       // further back and high, tilted up with the climb
       const k = ease(Math.min(1, (c.t - 4.6) / 2))
-      pos.set(ax + (ax > 0 ? -0.9 : 0.9), F + 2.5, Math.min(cabin.zBack - 1.2, S.z + 7))
+      pos.set(ax + (ax > 0 ? -0.6 : 0.6), F + 3.6, Math.min(cabin.zBack - 1.2, S.z + 8))
       look.set(ax * 0.6, F + 1.2 + k * 0.5, cabin.zFront)
       camera.position.copy(pos)
       camera.lookAt(look)
@@ -209,7 +285,11 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     hud.cine.bars(false)
     hud.cine.skip(false)
     hud.setMode('play')
-    lockSeat(false)
+    inflight.setPhase('cruise')
+    rules.setPhase('cruise')
+    luxury.setPhase('cruise')
+    for (const f of fun) f.setPhase('cruise')
+    inflight.release() // still buckled: B / BELT unbuckles
     st.mode = 'cruise'
     st.left = FLIGHT.cruiseTime
     st.shake = 0
@@ -220,7 +300,7 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     sfx('ding', { vol: 0.35 })
     syncYawToPlayer()
     cruiseHud()
-    hud.toast(`Seatbelt sign is off! Welcome to ${FLIGHT.classes[st.cls].name}: walk aft any time, but stay out of the cabins ahead.`)
+    hud.toast(`Seatbelt sign is off! Unbuckle with B (or BELT) to explore ${FLIGHT.classes[st.cls].name}. MENU orders food!`)
     if (st.moved) setTimeout(() => hud.toast(`Someone was in ${st.moved}: the crew moved you to ${st.code}.`), 2500)
   }
   function cruiseLabel() {
@@ -238,7 +318,15 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
 
   // --- Landing -> the city ------------------------------------------------------------------------------
   function land() {
+    st.bumps.length = 0
     st.mode = 'landing'
+    inflight.setPhase('landing')
+    rules.setPhase('landing')
+    rules.landed()
+    luxury.setPhase('landing')
+    for (const f of fun) f.setPhase('landing')
+    for (const k in timeKs) delete timeKs[k]
+    st.timeK = 1
     st.cut = { t: 0, said: 0 }
     st.offer = null
     hud.action(null)
@@ -250,6 +338,7 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     cabin.setSeatbelt(true)
     cabin.setSky(0.12)
     crew.stowMeals()
+    inflight.stow()
     hud.setMode('cutscene')
     hud.cine.bars(true)
     hud.cine.skip(true)
@@ -288,6 +377,14 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     if (st.mode !== 'landing') return
     st.cut = null
     const d = dest()
+    inflight.reset()
+    rules.setPhase('off')
+    luxury.clear()
+    neighbours.clear()
+    screen.clear()
+    events.clear()
+    photo.setPhase('off')
+    shift.clear()
     lockSeat(false)
     if (seating.active) standUp()
     clearPax()
@@ -318,7 +415,16 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
       store.addFlight()
       onArrived?.(d)
     }, 600)
-    hud.action({ label: `Welcome to ${d.name}!`, text: 'Fly Again', color: 'green', onTap: flyAgain })
+    const flyAgainBtn = () => hud.action({ label: `Welcome to ${d.name}!`, text: 'Fly Again', color: 'green', onTap: flyAgain })
+    // Restrained on the flight: the airport police hold you in a cell first (wait, or pay bail).
+    if (rules.detained) {
+      st.jailed = true
+      setTimeout(() => rules.jail(sp, () => {
+        st.jailed = false
+        flyAgainBtn()
+      }), 700)
+      hud.action(null)
+    } else flyAgainBtn()
   }
   function spawnPeds() {
     for (const n of peds) crowd.remove(n.npc)
@@ -332,7 +438,7 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     }
   }
   function flyAgain() {
-    if (st.mode !== 'city') return
+    if (st.mode !== 'city' || st.jailed) return
     st.mode = 'leaving'
     hud.action(null)
     hud.nowBoarding(true, 'heading back to the airport')
@@ -361,6 +467,7 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
   function trySit() {
     if (seating.active || seating.cooldown > 0 || crew.escorting) return
     const pp = player.position
+    if (pp.y > cabin.floorY + 10 || pp.z < cabin.zFront) return // upstairs / in the cockpit
     // your own seat: from the aisle beside your row
     const s = st.seat
     if (Math.abs(pp.z - s.z) < 0.5 && Math.abs(pp.x - s.aisleX) < 0.6) return seatMe(false)
@@ -375,16 +482,26 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
     }
     if (best) sitIn(best, false)
   }
-  function turbulence() {
-    sfx('bingBong', { vol: 0.25 })
-    sfx('rumble', { dur: 1.6, vol: 0.18 })
+  // The sign comes on with a bing-bong; a few seconds later the bumps hit (inflight.jolt: standing
+  // passengers stumble, unbuckled ones bonk their heads, buckled ones are fine).
+  function turbulence(quiet = false) {
+    if (!quiet) sfx('bingBong', { vol: 0.3 })
     cabin.setSeatbelt(true)
-    st.turbBelt = 6
-    hud.toast('A little turbulence... the seatbelt sign is on!')
-    for (const n of pax) if (Math.random() < 0.4) n.scare = 0.6
+    inflight.turbulence()
+    st.turbBelt = Math.max(st.turbBelt, 11)
+    if (!quiet) hud.toast('Captain: "We expect some turbulence. Please return to your seats and fasten your seatbelts!"')
+    const bumps = [[3.2, 0.5], [4.4, 1], [5.1, 0.7], [6.6, 0.9], [7.6, 0.4]]
+    for (const [at, k] of bumps) st.bumps.push({ t: at, k })
+  }
+  function bump(k) {
+    sky.bump(k)
+    sfx('rumble', { dur: 0.5 + k * 0.6, vol: 0.18 + k * 0.2 })
+    if (k > 0.6) sfx('clink', { vol: 0.15 })
+    for (const n of pax) if (Math.random() < 0.3 * k) n.scare = 0.4 + k * 0.4
     const pp = player.position
-    fx.puff(pp.x, pp.y + 2.4, pp.z, { count: 6, size: 0.4, spread: 1.2, up: -0.3, speed: 0.4, life: 1.2, alpha: 0.12, color: '#ffffff' })
-    setTimeout(() => sfx('clink', { vol: 0.12 }), 300)
+    fx.puff(pp.x, pp.y + 3.4, pp.z, { count: Math.round(3 + k * 5), size: 0.4, spread: 1.2, up: -0.3, speed: 0.4, life: 1.2, alpha: 0.12, color: '#ffffff' })
+    if (!rules.hidden) inflight.jolt(k) // locked in a lavatory / under a blanket: just the rattle
+    else shake(0.06 + 0.1 * k, 0.4)
   }
 
   return {
@@ -402,14 +519,38 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
       return st.cls
     },
     crew,
+    inflight,
     inCabin: () => ['takeoff', 'cruise', 'landing'].includes(st.mode),
     inCity: () => st.mode === 'city' || st.mode === 'leaving',
-    camera(camera) {
-      if (!st.cut) return false
+    camera(camera, dt = 1 / 60) {
+      if (!st.cut) return photo.camera(camera) || screen.camera(camera) || inflight.camera(camera, dt) // photo mode, a movie / outside cam, the dining close-up
       takeoffCam(camera, st.cut)
       return true
     },
+    // The seated pose on top of SIT while you eat / drink / tug the belt (null: plain SIT).
+    pose: () => photo.pose() ?? neighbours.pose() ?? luxury.pose() ?? inflight.pose(),
+    // Standing pose overlay (a photo pose, peekaboo in the aisle...), else null.
+    standPose: () => (st.mode === 'cruise' ? photo.standPose() ?? neighbours.standPose() ?? shift.standPose() : null),
+    shift,
+    // Shared with the other passengers (main.js presence): your ticket's class on board, the crew shift.
+    presence: () => ({ cls: ['takeoff', 'cruise', 'landing'].includes(st.mode) ? st.cls : -1, ...shift.presence() }),
+    neighbours,
+    screen,
+    events,
+    photo,
+    sky,
+    // Lying flat in a bed: { x, y, z, rx } for the avatar, else null.
+    bodyPose: () => luxury.bodyPose(),
+    luxury,
+    deck,
+    // Hidden in a lavatory / under a blanket: main doesn't draw the avatar.
+    hidesPlayer: () => rules.hidesPlayer() || screen.pov,
+    rules,
     update(dt) {
+      inflight.update(dt)
+      rules.update(dt)
+      luxury.update(dt)
+      for (const f of fun) f.update(dt)
       const inCabin = st.mode === 'takeoff' || st.mode === 'cruise' || st.mode === 'landing'
       if (inCabin) {
         cabin.update(dt)
@@ -419,14 +560,15 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
       else if (st.mode === 'landing') updateLanding(dt)
       else if (st.mode === 'cruise') {
         st.cruiseT += dt
-        st.left = Math.max(0, st.left - dt)
+        st.left = Math.max(0, st.left - dt * st.timeK) // asleep in a bed: time flies
         if (!st.offer) hud.actionLabel(cruiseLabel())
         cabin.setProgress(0.03 + 0.93 * (1 - st.left / FLIGHT.cruiseTime), `${dest().name} · ${clock(st.left)} to go`)
-        drone?.set(0.2, 0.62, 1)
+        st.roarT = Math.max(0, st.roarT - dt)
+        drone?.set(st.roarT > 0 ? 0.42 : 0.2, st.roarT > 0 ? 1 : 0.62, 1) // full thrust from the cockpit
         // the escort's seatbelt: locked in your seat for a while
         if (st.beltT > 0) {
           st.beltT -= dt
-          if (st.beltT <= 0 && seating.seat === st.seat) lockSeat(false)
+          if (st.beltT <= 0 && seating.seat === st.seat) inflight.release()
         }
         if (st.turbBelt > 0) {
           st.turbBelt -= dt
@@ -441,6 +583,14 @@ export function createFlight({ scene, crowd, cabin, city, hud, store, queue, fx,
           st.chatIn = rr(4, 9)
           const n = pick(pax)
           if (n) crowd.say(n, pick(FLIGHT.cabinLines), 3)
+        }
+        for (let i = st.bumps.length - 1; i >= 0; i--) {
+          const b = st.bumps[i]
+          b.t -= dt
+          if (b.t <= 0) {
+            st.bumps.splice(i, 1)
+            bump(b.k)
+          }
         }
         st.turbIn -= dt
         if (st.turbIn <= 0) {

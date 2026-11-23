@@ -22,9 +22,10 @@ import { player } from './player.js'
 import { seating } from './seating.js'
 import { registerSfx, rollLoop, sfx } from './audio.js'
 import { angTo } from './linepath.js'
-import { makeCart, makeMeal, makeServingTray } from './airport/cabin.js'
+import { makeCart, makeServingTray } from './airport/cabin.js'
 
 const C = FLIGHT.crew
+const R = FLIGHT.rules
 const rr = (a, b) => a + Math.random() * (b - a)
 const pick = (a) => a[Math.floor(Math.random() * a.length)]
 
@@ -112,8 +113,10 @@ registerSfx('ding', ({ now, out, tone }, o) => {
 })
 
 // --- The crew -----------------------------------------------------------------------------------------
-// trip: { seat, cls, code, returnToSeat(beltedSeconds), upgradeTo(k) -> code | null, offer(cfg | null) }
-export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
+// trip: { seat, cls, code, returnToSeat(beltedSeconds), upgradeTo(k) -> code | null, offer(cfg | null),
+//         serveMeal(seat, dishIds) }
+// rules (rules.js): violation(), hidden / hide, punish(reason), report(), escaped(), setLavBusy(), onAlarm.
+export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip, rules }) {
   const F = cabin.floorY
   const X = FLIGHT.cabin.x
   const AX = cabin.aisle
@@ -129,7 +132,7 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     fadeEl.style.transition = `opacity ${ms}ms ease`
     fadeEl.style.opacity = a
   }
-  const st = { on: false, t: 0, service: 'before', strikes: 0, lastStrike: -99, cool: 0, sneakT: 0, sneaked: false, sneakHint: false, escorting: false, offerT: 0, lavT: 6, moteT: 0, wasForbidden: false, served: false, barT: 0 }
+  const st = { susp: 0, chase: null, on: false, t: 0, service: 'before', strikes: 0, lastStrike: -99, cool: 0, sneakT: 0, sneaked: false, sneakHint: false, escorting: false, offerT: 0, lavT: 6, moteT: 0, wasForbidden: false, served: false, barT: 0 }
 
   const later = (t, fn) => timers.push({ t, fn })
   const line = (key, extra = {}) => pick(C.lines[key]).replace('{seat}', trip.code).replace('{cls}', extra.cls ?? zones[trip.cls].name)
@@ -191,6 +194,7 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
   function goHome(c) {
     c.mode = 'busy'
     walk(c, route(c, c.home), 1.4, () => {
+      c.delivering = false // back from a menu order: on duty again
       c.mode = c.role === 'walker' ? 'walk' : 'post'
       c.face = c.role === 'walker' ? null : c.home.yaw
       c.npc.mode = 'idle'
@@ -204,6 +208,11 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     holdTray(c, false)
     c.path = []
     c.done = null
+    // an order this one was carrying goes back to the galley queue (someone else brings it)
+    if (c.order) orders.unshift(c.order)
+    c.order = null
+    c.delivering = false
+    c.chasing = false
   }
   // On duty at a curtain: standing at the post, or stepping in to stop someone right now.
   const atPost = (c) => !!c && (c.guard || (c.mode === 'post' && Math.hypot(c.npc.x - c.home.x, c.npc.z - c.home.z) < 0.6))
@@ -250,25 +259,18 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     if (trip.cls === 1) return 'business'
     return trip.tags?.has?.('chicken') ? 'chicken' : 'pasta'
   }
+  // The complimentary meal: real dishes on your tray (inflight.js), eaten bite by bite with EAT.
+  const MEAL_DISHES = { first: ['wagyu', 'champagne'], business: ['steak', 'mocktail'], chicken: ['chicken'], pasta: ['pasta'] }
   function serveMe(c) {
     const s = trip.seat
     if (!s || st.served) return
     st.served = true
     const kind = mealKind()
-    const h = s.cls <= 1 ? 0.7 : 0.73
-    const m = makeMeal(kind, s.cls <= 2 ? h : 0)
-    const dz = s.cls === 0 ? 0.62 : s.cls === 1 ? 0.6 : s.cls === 2 ? 0.55 : 0.46
-    m.position.set(s.x, F + h, s.z - dz)
-    scene.add(m)
-    meals.push({ g: m, t: 0 })
+    trip.serveMeal(s, MEAL_DISHES[kind])
     c.npc.mode = 'serve'
-    crowd.say(c.npc, kind === 'first' ? 'Your champagne and the fillet, enjoy!' : kind === 'business' ? 'A glass of red and dinner for you.' : kind === 'chicken' ? 'Chicken, like you ordered at check-in!' : 'Pasta for you! Bon appétit.', 3)
-    sfx('trayDown', { vol: 0.45 })
-    if (m.userData.fancy) later(0.35, () => sfx('champagne', { vol: 0.35 }))
-    else later(0.3, () => sfx('clink', { vol: 0.2 }))
-    fx.sparkle(m.position.x, m.position.y + 0.2, m.position.z, { count: 14, color: '#fff2b0', size: 0.18, speed: 1.6, up: 1.2, life: 0.7, grav: 2 })
-    store.addCoins(C.mealCoins, { x: m.position.x, y: m.position.y + 0.4, z: m.position.z })
-    hud.toast(kind === 'chicken' ? 'Chicken it is! You ordered it at check-in.' : kind === 'pasta' ? 'Pasta it is! Enjoy your meal.' : 'Dinner is served. Cheers!')
+    crowd.say(c.npc, kind === 'first' ? 'Your champagne and the wagyu, enjoy!' : kind === 'business' ? 'Steak and a sunset mocktail for you.' : kind === 'chicken' ? 'Chicken, like you ordered at check-in!' : 'Pasta for you! Bon appétit.', 3)
+    store.addCoins(C.mealCoins, { x: s.x, y: s.y + 1, z: s.z })
+    hud.toast(`${kind === 'chicken' ? 'Chicken it is!' : kind === 'pasta' ? 'Pasta it is!' : 'Dinner is served!'} Tap EAT (or press E) to dig in.`)
   }
   function missedMeal(c) {
     if (st.served) return
@@ -278,6 +280,56 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     sfx('hmm')
   }
   const inMySeat = () => !!seating.seat && seating.seat === trip.seat && !st.escorting
+
+  // --- Orders from the menu (inflight.js) ---------------------------------------------------------------
+  // Whoever is free brings it (the attendant of that cabin first: the bartender up in First, the walker
+  // in Economy). An attendant who leaves a curtain post to deliver leaves that curtain unguarded...
+  const orders = [] // { seat, item, onServe }
+  const freeForOrder = (c) => c && !c.guard && !c.todo && !c.delivering && (c.mode === 'post' || c.mode === 'walk' || c.mode === 'pause')
+  function deliverer(seat) {
+    const k = seat.cls
+    const pref = k === 0 ? crew.find((c) => c.role === 'bar') : k === 3 ? crew.find((c) => c.role === 'walker') : postOf(k)
+    if (freeForOrder(pref)) return pref
+    let best = null
+    let bd = Infinity
+    for (const c of crew) {
+      if (!freeForOrder(c)) continue
+      const d = Math.abs(c.npc.z - seat.z) + (c.role === 'post' ? 6 : 0) // keep the posts guarding if possible
+      if (d < bd) {
+        bd = d
+        best = c
+      }
+    }
+    return best
+  }
+  function runDelivery(c, o) {
+    interrupt(c)
+    const run = c.run
+    c.mode = 'busy'
+    c.delivering = true
+    c.order = o
+    c.face = null
+    holdTray(c, true)
+    c.npc.mode = 'serve'
+    const seat = o.seat
+    const ax = seat.aisleX
+    walk(c, route(c, { x: ax, z: seat.z - 0.35 }, ax), 1.7, () => {
+      if (c.run !== run) return
+      c.order = null
+      c.face = Math.atan2(seat.x - c.npc.x, seat.z - c.npc.z)
+      const ok = o.onServe()
+      if (ok) {
+        crowd.say(c.npc, pick([`Here's your ${o.item.name}!`, `One ${o.item.name}, enjoy!`, 'Bon appétit!', `${o.item.name}, fresh from the galley!`]), 2.4)
+        holdTray(c, false)
+      }
+      later(1.3, () => {
+        if (c.run !== run) return
+        holdTray(c, false) // (still `delivering` on the way back: they won't turn on their customer)
+        c.npc.mode = 'idle'
+        goHome(c)
+      })
+    })
+  }
 
   // --- The meal service -----------------------------------------------------------------------------
   // A cart down `ax` through zone k's rows, a stop at each row; then back to the post.
@@ -383,9 +435,15 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
       sfx('bingBong', { vol: 0.28 })
       hud.toast('Cabin lights dimmed: sit back and relax.')
     }
-    if (c.role !== 'post' || st.escorting) return
+    if (c.role !== 'post' || st.escorting || st.chase) return
     const pz = player.position.z
-    if (trip.cls >= c.k && pz < zones[c.k].curtain - 0.2) catchMe(c, 'caught')
+    // back at the post and you're past their curtain: they turn round, very suspicious
+    if (trip.cls >= c.k && pz < zones[c.k].curtain - 0.2 && !rules.hidden) {
+      st.susp = Math.max(st.susp, 0.7)
+      c.face = Math.atan2(player.position.x - c.npc.x, pz - c.npc.z)
+      crowd.say(c.npc, '❗', 1.4)
+      sfx('alertBang', { vol: vol(c.npc.x, c.npc.z, 0.4) })
+    }
   }
 
   // --- Rules: who may go where -------------------------------------------------------------------
@@ -409,7 +467,7 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     c.face = null
     if (st.strikes >= 3) {
       st.strikes = 1
-      escort(c, 'escort')
+      escort(c, 'escort', 'curtain')
       return
     }
     const firm = st.strikes === 2
@@ -452,33 +510,20 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     fx.sparkle(pp.x, pp.y + 1.3, pp.z - 0.3, { count: 18, color: '#ffe08a', size: 0.26, speed: 4.5, up: 1.6, life: 0.5, grav: 3 })
     fx.puff(pp.x, pp.y + 0.1, pp.z, { count: 10, size: 0.35, spread: 0.4, up: 0.4, speed: 2, life: 0.7, alpha: 0.3, color: '#d2cbc0' })
   }
-  // Walk over to you, then take you back.
-  function catchMe(c, kind) {
-    if (st.escorting) return
-    st.escorting = true
-    c.mode = 'busy'
-    c.npc.mode = 'idle'
-    sfx('ahem', { vol: vol(c.npc.x, c.npc.z, 0.4) })
-    hud.big('CAUGHT!', 'red', 1.3)
-    crowd.say(c.npc, line('caught'), 3)
-    const pp = player.position
-    const ax = pp.x > X ? X + AX : X - AX
-    walk(c, route(c, { x: ax, z: pp.z + 0.6 }, ax), 2.6, () => {
-      st.escorting = false
-      escort(c, kind)
-    })
-  }
   // Fade, and you're back in your own seat with the belt on; the attendant beside your row.
-  function escort(c, kind) {
+  function escort(c, kind, reason = 'trespass') {
     if (st.escorting === 'now') return
     st.escorting = 'now'
     player.stun = 0.8
     st.sneakT = 0
+    st.susp = 0
+    const pun = rules.punish(reason) // the record decides: warning, fine, downgrade, cuffs
     fade(1, 240)
     sfx('whoosh', { vol: 0.45, dur: 0.4 })
-    hud.big(kind === 'caught' ? 'BACK TO YOUR SEAT!' : 'ESCORTED BACK!', 'red', 1.8)
+    hud.big(pun.title ?? (kind === 'caught' ? 'BACK TO YOUR SEAT!' : 'ESCORTED BACK!'), 'red', 1.8)
+    const belted = pun.belted ?? C.belted
     later(0.32, () => {
-      trip.returnToSeat(C.belted)
+      trip.returnToSeat(belted)
       const s = trip.seat
       const n = c.npc
       n.x = s.aisleX
@@ -490,12 +535,12 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
       cabin.setSeatbelt(true)
       sfx('buckle', { vol: 0.5 })
       later(0.3, () => sfx('ding', { vol: 0.3 }))
-      hud.toast(`Seatbelt on for ${C.belted} s. Stay in ${zones[trip.cls].name}!`)
+      hud.toast(belted === Infinity ? 'Restrained until landing!' : `Seatbelt locked for ${belted} s. Stay in ${zones[trip.cls].name}!`)
       later(0.12, () => {
         fade(0, 450)
         fx.sparkle(s.x, s.y + 0.8, s.z, { count: 22, color: '#9fd0ff', size: 0.28, speed: 3, up: 1.5, life: 0.7, grav: 2 })
       })
-      later(C.belted, () => {
+      later(Math.min(belted, 8), () => {
         cabin.setSeatbelt(false)
         sfx('ding', { vol: 0.25 })
       })
@@ -526,6 +571,231 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     if (c) crowd.say(c.npc, line('welcome', { cls: zones[k].name }), 3)
   }
 
+  // --- Watching + chasing (rules.js keeps your record and does the punishing) -----------------------
+  const onDuty = (c) => !c.delivering && !c.chasing
+  // Can attendant c see you? Right beside them always; else facing you, within range, same cabin.
+  function sees(c, pp, range) {
+    const n = c.npc
+    const dx = pp.x - n.x
+    const dz = pp.z - n.z
+    const d = Math.hypot(dx, dz)
+    if (d < R.feel) return true
+    if (d > range || cabin.classAt(n.z) !== cabin.classAt(pp.z)) return false
+    return (Math.sin(n.yaw) * dx + Math.cos(n.yaw) * dz) / Math.max(d, 1e-3) > 0.3
+  }
+  // The meter: returns whether someone saw you break a rule this frame.
+  function watch(dt, pp) {
+    if (st.chase) return stepChase(dt, pp)
+    const v = rules.violation()
+    let seer = null
+    if (v) {
+      const range = seating.seat ? R.seatedSight : R.sight
+      for (const c of crew) {
+        if (onDuty(c) && sees(c, pp, range)) {
+          seer = c
+          break
+        }
+      }
+    }
+    if (!seer) {
+      st.susp = Math.max(0, st.susp - R.suspDecay * dt)
+      return false
+    }
+    const before = st.susp
+    st.susp = Math.min(1, st.susp + R.suspRate * v.weight * dt)
+    const n = seer.npc
+    // a post turns to stare; a "?" the first time, a "!" when it's obvious
+    if (seer.mode === 'post') seer.face = Math.atan2(pp.x - n.x, pp.z - n.z)
+    seer.reactT = (seer.reactT ?? 0) - dt
+    if (before < 0.05 && seer.reactT <= 0) {
+      seer.reactT = 3
+      crowd.say(n, '❓', 1.2)
+      sfx('huh', { vol: vol(n.x, n.z, 0.4) })
+    }
+    if (before < 0.6 && st.susp >= 0.6) {
+      crowd.say(n, `❗ ${v.label}`, 2.2)
+      sfx('alertBang', { vol: vol(n.x, n.z, 0.45) })
+      hud.big('👀 SPOTTED!', 'gold', 1)
+    }
+    if (st.susp >= 1) startChase(seer, v.kind)
+    return true
+  }
+  function addChaser(c) {
+    if (!c || c.chasing) return
+    interrupt(c) // drops a cart / tray / order
+    c.mode = 'busy'
+    c.chasing = true
+    c.guard = false
+    c.face = null
+    c.npc.mode = 'idle'
+    c.planT = 0
+    st.chase.chasers.push(c)
+    crowd.say(c.npc, pick(C.lines.chase), 2)
+  }
+  function startChase(seer, reason) {
+    if (st.chase) return
+    const pp = player.position
+    st.chase = { t: 0, reason, chasers: [], last: { x: pp.x, z: pp.z }, unseenT: 0, mode: 'chase', searchT: 0, helper: false, knocks: 0, knockT: 1 }
+    addChaser(seer)
+    sfx('whistle', { vol: 0.5 })
+    later(0.1, () => sfx('alertBang', { vol: 0.4 }))
+    hud.big('🚨 RUN!', 'red', 1.6)
+    hud.toast('The crew are after you! Sprint (Shift / RUN), break their line of sight, then HIDE.')
+  }
+  // Everyone at once (the exit-door alarm).
+  function alarm() {
+    st.susp = 1
+    const pp = player.position
+    const free = crew.filter((c) => !c.chasing).sort((a, b) => Math.hypot(a.npc.x - pp.x, a.npc.z - pp.z) - Math.hypot(b.npc.x - pp.x, b.npc.z - pp.z))
+    if (!st.chase) startChase(free.shift(), 'door')
+    else st.chase.reason = 'door'
+    if (!st.chase) return
+    st.chase.helper = true
+    for (const c of free.slice(0, 2)) addChaser(c)
+  }
+  rules.onAlarm = alarm
+  // Through the aisles: along their aisle, across at the nearest galley / door cross-aisle if needed.
+  function chasePath(c, to) {
+    const n = c.npc
+    if (Math.hypot(to.x - n.x, to.z - n.z) < 2.2) return [{ x: to.x, z: to.z }]
+    const side = (x) => (x < X ? X - AX : X + AX)
+    const a0 = side(n.x)
+    const a1 = side(to.x)
+    const pts = []
+    if (Math.abs(n.x - a0) > 0.3) pts.push({ x: a0, z: n.z })
+    if (a0 !== a1) {
+      let cz = cabin.crossZ[0]
+      for (const z of cabin.crossZ) if (Math.abs(n.z - z) + Math.abs(to.z - z) < Math.abs(n.z - cz) + Math.abs(to.z - cz)) cz = z
+      pts.push({ x: a0, z: cz }, { x: a1, z: cz })
+    }
+    pts.push({ x: a1, z: to.z }, { x: to.x, z: to.z })
+    return pts
+  }
+  // Returns whether a chaser sees you this frame.
+  function stepChase(dt, pp) {
+    const ch = st.chase
+    ch.t += dt
+    const hide = rules.hide
+    let seen = false
+    if (!hide) {
+      for (const c of ch.chasers) {
+        const d = Math.hypot(pp.x - c.npc.x, pp.z - c.npc.z)
+        if (d < 5 || (d < R.chaseSight && cabin.classAt(c.npc.z) === cabin.classAt(pp.z))) seen = true
+      }
+    }
+    if (seen) {
+      ch.last.x = pp.x
+      ch.last.z = pp.z
+      ch.unseenT = 0
+      if (ch.mode === 'search') {
+        ch.mode = 'chase'
+        sfx('alertBang', { vol: 0.4 })
+        crowd.say(ch.chasers[0].npc, 'THERE!', 1.4)
+      }
+    } else ch.unseenT += dt
+    // a second attendant joins from wherever is closest, by radio
+    if (!ch.helper && ch.t > R.helperAfter) {
+      ch.helper = true
+      const h = crew.filter((c) => !c.chasing && !c.delivering).sort((a, b) => Math.hypot(a.npc.x - pp.x, a.npc.z - pp.z) - Math.hypot(b.npc.x - pp.x, b.npc.z - pp.z))[0]
+      if (h) {
+        sfx('radio', { vol: 0.4 })
+        crowd.say(ch.chasers[0].npc, pick(C.lines.radio), 2)
+        addChaser(h)
+      }
+    }
+    const spotted = hide && hide.spotted
+    let target = seen ? pp : ch.last
+    let speed = R.chaseSpeed
+    if (spotted) target = hide.at
+    else if (ch.unseenT > R.loseAfter) {
+      if (ch.mode !== 'search') {
+        ch.mode = 'search'
+        ch.searchT = 0
+        crowd.say(ch.chasers[0].npc, pick(C.lines.search), 2.4)
+        sfx('huh', { vol: 0.4 })
+      }
+      speed = R.chaseSpeed * 0.4
+    }
+    for (const c of ch.chasers) {
+      const n = c.npc
+      const d = Math.hypot(target.x - n.x, target.z - n.z)
+      c.planT -= dt
+      if (c.planT <= 0 && d > 0.6 && !(spotted && d < 1.6)) {
+        c.planT = 0.2
+        walk(c, chasePath(c, target), speed, null)
+      }
+      // grabbed
+      if (!hide && Math.hypot(pp.x - n.x, pp.z - n.z) < R.catchDist) {
+        caught(c)
+        return seen
+      }
+      // at the hiding place they saw you use: knock knock... / the blanket comes off
+      if (spotted && d < 1.6) {
+        c.path = []
+        c.face = Math.atan2(target.x - n.x, target.z - n.z)
+        ch.knockT -= dt
+        if (ch.knockT <= 0) {
+          ch.knockT = 1.1
+          if (hide.kind === 'blanket') {
+            crowd.say(n, pick(C.lines.blanket), 2)
+            rules.unhide(true)
+            caught(c)
+            return seen
+          }
+          ch.knocks++
+          if (ch.knocks > R.knocks) {
+            rules.unhide(true)
+            caught(c)
+            return seen
+          }
+          sfx('knock', { vol: 0.6 })
+          crowd.say(n, ch.knocks >= R.knocks ? "I'm coming in!" : C.lines.knock[(ch.knocks - 1) % C.lines.knock.length], 1.6)
+          hud.big('KNOCK KNOCK!', 'gold', 0.8)
+        }
+      }
+    }
+    // searching where they lost you, then giving up
+    if (ch.mode === 'search' && !spotted) {
+      ch.searchT += dt
+      for (const c of ch.chasers) if (!c.path.length) c.npc.yaw += Math.sin(st.t * 2 + c.k) * dt * 2.5 // looking around
+      if (ch.searchT > R.searchTime) giveUp()
+    }
+    return seen
+  }
+  function endChase() {
+    const ch = st.chase
+    st.chase = null
+    if (!ch) return []
+    for (const c of ch.chasers) c.chasing = false
+    return ch.chasers
+  }
+  function giveUp() {
+    const chasers = endChase()
+    st.susp = 0.35
+    for (const c of chasers) {
+      crowd.say(c.npc, pick(C.lines.lost), 2)
+      c.npc.mode = 'idle'
+      goHome(c)
+    }
+    rules.escaped()
+  }
+  function caught(c) {
+    const reason = st.chase?.reason ?? 'trespass'
+    const chasers = endChase()
+    for (const q of chasers) if (q !== c) goHome(q)
+    c.mode = 'busy'
+    c.path = []
+    c.npc.mode = 'stop'
+    crowd.say(c.npc, pick(C.lines.gotcha), 2)
+    hud.big('GOTCHA!', 'red', 1)
+    const pp = player.position
+    fx.sparkle(pp.x, pp.y + 1.6, pp.z, { count: 20, color: '#ffe14a', size: 0.25, speed: 4, up: 2, life: 0.6, grav: 4 })
+    fx.puff(pp.x, pp.y + 0.1, pp.z, { count: 10, size: 0.4, alpha: 0.35, life: 0.6, color: '#d2cbc0' })
+    player.stun = 0.6
+    player.velocity.x = player.velocity.z = 0
+    later(0.35, () => escort(c, 'caught', reason))
+  }
+
   // --- Lifecycle --------------------------------------------------------------------------------------
   function clear() {
     for (const c of crew) {
@@ -535,6 +805,7 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     }
     crew.length = 0
     timers.length = 0
+    orders.length = 0
     stowMeals(false)
     fade(0, 0)
   }
@@ -551,7 +822,7 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     // On board: crew to their places.
     start() {
       clear()
-      Object.assign(st, { on: true, t: 0, service: 'before', strikes: 0, lastStrike: -99, cool: 0, sneakT: 0, sneaked: false, sneakHint: false, escorting: false, offerT: 0, served: false, barT: 0 })
+      Object.assign(st, { susp: 0, chase: null, on: true, t: 0, service: 'before', strikes: 0, lastStrike: -99, cool: 0, sneakT: 0, sneaked: false, sneakHint: false, escorting: false, offerT: 0, served: false, barT: 0 })
       const g = cabin.galley
       addCrew('bar', 0, { x: g.front.x, z: g.front.z, yaw: 0 }, { shirt: '#f4f5f7', arms: '#f4f5f7', pants: '#16203d', hat: false, name: 'bartender' })
       for (let k = 1; k < zones.length; k++) {
@@ -563,6 +834,21 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
     },
     stop: clear,
     stowMeals,
+    // Someone (the lounge bartender, a woken-up crew member) calls it in: the nearest attendant takes you back.
+    escortNow(reason) {
+      if (st.escorting) return
+      const pp = player.position
+      const c = crew.filter((q) => !q.chasing).sort((a, b) => Math.hypot(a.npc.x - pp.x, a.npc.z - pp.z) - Math.hypot(b.npc.x - pp.x, b.npc.z - pp.z))[0]
+      if (!c) return
+      if (st.chase) for (const q of endChase()) if (q !== c) goHome(q)
+      interrupt(c)
+      c.mode = 'busy'
+      escort(c, 'caught', reason)
+    },
+    // An order for `seat`: onServe() at the seat puts it on the tray (false: nothing to hand over).
+    deliver(seat, item, onServe) {
+      orders.push({ seat, item, onServe })
+    },
     get escorting() {
       return !!st.escorting
     },
@@ -596,7 +882,7 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
         walk(w, route(w, to, ax), 1.1, () => {
           w.mode = 'pause'
           if (Math.random() < 0.4) crowd.say(w.npc, pick(['Blanket?', 'Water, anyone?', 'Seatbelts loosely fastened, please.', 'Headphones are in the pocket.']), 2.4)
-          later(rr(2, 5), () => (w.mode = 'walk'))
+          later(rr(2, 5), () => w.mode === 'pause' && (w.mode = 'walk'))
         })
       }
 
@@ -607,6 +893,11 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
         const run = c.todo
         c.todo = null
         run()
+      }
+      // menu orders: the next free attendant takes the next one
+      if (orders.length && !st.escorting) {
+        const c = deliverer(orders[0].seat)
+        if (c) runDelivery(c, orders.shift())
       }
 
       // Curtains: open for crew passing, for you going where you may (or sneaking past an empty post),
@@ -629,11 +920,12 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
       }
 
       // You, past a curtain you shouldn't be.
+      let seenNow = false
       if (cruising && !st.escorting) {
         const zone = cabin.classAt(pp.z)
         const forbidden = zone < trip.cls
         // at a guarded curtain: the attendant there steps in
-        if (st.cool <= 0) {
+        if (st.cool <= 0 && !st.chase) {
           for (let k = trip.cls; k >= 1; k--) {
             const cz = zones[k].curtain
             const post = postOf(k)
@@ -650,24 +942,12 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
             hud.toast(`The crew is busy with the meal! Grab a free seat in ${zones[zone].name} and sit tight for ${C.sneakTime} s.`)
             sfx('sneak', { vol: 0.35 })
           }
-          // seen by crew in the same cabin: facing you and close (standing), or right beside you (seated)
-          const seated = !!seating.seat
-          for (const c of crew) {
-            if (c.mode === 'busy' && c.path.length && c.v > 2) continue // already coming
-            const n = c.npc
-            if (cabin.classAt(n.z) !== zone) continue
-            const dx = pp.x - n.x
-            const dz = pp.z - n.z
-            const d = Math.hypot(dx, dz)
-            const facing = (Math.sin(n.yaw) * dx + Math.cos(n.yaw) * dz) / Math.max(d, 1e-3)
-            if ((!seated && d < C.spot && facing > 0.2) || d < 1.3) {
-              interrupt(c) // this one's service run ends here
-              catchMe(c, 'caught')
-              break
-            }
-          }
-          // sitting tight in someone else's cabin
-          if (seated && seating.seat.cls < trip.cls && !st.escorting) {
+        }
+        // The crew watching: whoever sees a rule broken fills the meter; full = a chase.
+        seenNow = watch(dt, pp)
+        if (forbidden) {
+          // sitting tight in someone else's cabin, unseen
+          if (seating.seat && seating.seat.cls < trip.cls && !st.escorting && !seenNow && !st.chase) {
             st.sneakT += dt
             if (st.sneakT >= C.sneakTime && !st.sneaked) {
               st.sneaked = true
@@ -681,6 +961,9 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
         } else st.sneakHint = false
         st.wasForbidden = forbidden
       }
+
+      if (!cruising) st.susp = 0
+      rules.report(st.chase ? 1 : st.susp, !!st.chase, seenNow)
 
       // The upgrade offer times out.
       if (st.offerT > 0) {
@@ -725,7 +1008,7 @@ export function createCabinCrew({ scene, crowd, cabin, hud, store, fx, trip }) {
         st.lavT = rr(6, 14)
         const i = Math.floor(Math.random() * 4)
         const busy = Math.random() < 0.5
-        cabin.setLav(i, busy)
+        rules.setLavBusy(i, busy)
         if (!busy && Math.random() < 0.6) sfx('flush', { vol: 0.08 })
       }
 

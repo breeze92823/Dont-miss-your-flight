@@ -155,6 +155,11 @@ export const claimAdReward = (rewardToken) => request('adReward', { rewardToken 
 let onTroll = () => {}
 export const onTrolled = (fn) => (onTroll = fn)
 export const sendTroll = (id, text = '') => net.connected && send('troll', { id, text })
+// On board, passenger to passenger (backend WorldRoom `cabin`): kind report | reportOk | serve | tip.
+let onCabinMsg = () => {}
+export const onCabin = (fn) => (onCabinMsg = fn)
+export const sendCabin = (to, kind, item = '') => net.connected && !!to && (send('cabin', { to, kind, item }), true)
+export const mySession = () => net.room?.sessionId ?? ''
 
 // --- Presence (this client's roster entry) ------------------------------------------------------
 // main.js hands over what to report: () => { pose: {x,y,z,yaw,speed,grounded,anim}, trip: {...} }.
@@ -330,6 +335,9 @@ function attach(room) {
   room.onMessage('adRewardResult', (r) => waiting.adRewardResult?.(r))
   room.onMessage('called', (r) => waiting.called?.(r))
   room.onMessage('spot', (r) => waiting.spot?.(r))
+  room.onMessage('cabin', (m) => {
+    if (m && typeof m.from === 'string' && typeof m.kind === 'string') onCabinMsg({ from: m.from, name: String(m.name || 'Someone').slice(0, 32), kind: m.kind, item: typeof m.item === 'string' ? m.item : '' })
+  })
   room.onMessage('trolled', (m) => {
     if (typeof m?.id === 'string') onTroll({ id: m.id, from: String(m.from || 'Someone').slice(0, 32), text: String(m.text || '') })
   })

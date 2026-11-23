@@ -18,6 +18,8 @@ export const player = {
   facing: SPAWN_FACING, // yaw the character model faces, radians
   dims: { ...PLAYER_DIMS },
   frozen: false, // cutscene: the body ignores input and stays put
+  boost: { speed: 1, jump: 1 },
+  tired: false, // out of breath on board (rules.js): no sprinting // food effects on board (inflight.js): walk / sprint and jump multipliers
   stun: 0, // s left knocked back (guards.js shove): input ignored, the knock-back velocity glides out
   auto: null, // { x, z, speed, face? }: autopilot walks to this point (queue, check-in desk)
 }
@@ -104,7 +106,7 @@ function step(dt) {
   const scale = len > 1 ? 1 / len : 1
   let wishX = (fwdX * mv.z + rightX * mv.x) * scale
   let wishZ = (fwdZ * mv.z + rightZ * mv.x) * scale
-  let speed = inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed
+  let speed = (inputState.sprint && !player.tired ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed) * player.boost.speed
   const stunned = player.stun > 0
   if (stunned) player.stun = Math.max(0, player.stun - dt)
   if (player.frozen || stunned) {
@@ -135,7 +137,7 @@ function step(dt) {
   sinceGrounded = player.grounded ? 0 : sinceGrounded + dt
   let jumped = false
   if (jumpQueued > 0 && sinceGrounded <= PHYSICS.coyoteTime) {
-    player.velocity.y = PHYSICS.jumpSpeed
+    player.velocity.y = PHYSICS.jumpSpeed * player.boost.jump
     jumpQueued = 0
     sinceGrounded = PHYSICS.coyoteTime + 1
     jumped = true

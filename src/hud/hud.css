@@ -639,7 +639,7 @@
   top: 38%;
   transform: translate(-50%, -50%) scale(0.3);
   font-weight: 700;
-  font-size: clamp(2.2rem, 8vmin + 0.5rem, 6rem);
+  font-size: min(clamp(2.2rem, 8vmin + 0.5rem, 6rem), 7.2vw); /* long banners still fit a phone */
   white-space: nowrap;
   opacity: 0;
   transition: opacity 0.3s, transform 0.3s;
